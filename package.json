@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "test": "set -e; for f in test/*.test.ts; do tsx \"$f\"; done",
     "build": "next build",
     "postbuild": "node scripts/indexnow-ping.mjs",
     "start": "next start",

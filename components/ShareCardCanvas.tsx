@@ -8,6 +8,7 @@
  */
 
 import type { ZiweiChart } from '@/lib/ziwei/types';
+import type { SafeSharePayload } from '@/lib/ziwei/insight-workbench';
 
 const BRANCH_NAMES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
 
@@ -33,17 +34,15 @@ const ZHIWEI_LAYOUT: Array<{ branch: number; row: number; col: number }> = [
 
 interface ShareCardProps {
   chart: ZiweiChart;
-  birth: { year: string; month: string; day: string; hour: string; minute: string; gender: 'male' | 'female'; city?: string };
-  highlight?: string;
+  payload: SafeSharePayload;
 }
 
-export default function ShareCardCanvas({ chart, birth, highlight }: ShareCardProps) {
+export default function ShareCardCanvas({ chart, payload }: ShareCardProps) {
   const mingPalace = chart.palaces.find(p => p.branch === chart.mingGongBranch);
   const mingMajorStars = mingPalace?.stars.filter(s => s.type === 'major').map(s => s.name) ?? [];
   const mingStarStr = mingMajorStars.length > 0 ? mingMajorStars.join('·') : '空宫';
   const mingBranchName = BRANCH_NAMES[chart.mingGongBranch] || '';
   const shenBranchName = BRANCH_NAMES[chart.shenGongBranch] || '';
-  const dx = chart.daXians?.[chart.currentDaXianIndex];
 
   // 把每个宫位组织成 12 个格子，按布局画
   const cells = ZHIWEI_LAYOUT.map(slot => {
@@ -69,18 +68,6 @@ export default function ShareCardCanvas({ chart, birth, highlight }: ShareCardPr
       display: 'flex',
       flexDirection: 'column',
     }}>
-      {/* 装饰光晕 */}
-      <div style={{
-        position: 'absolute', top: '-60px', left: '-60px',
-        width: '180px', height: '180px', borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(184,146,42,0.18) 0%, transparent 70%)',
-      }} />
-      <div style={{
-        position: 'absolute', bottom: '-50px', right: '-50px',
-        width: '160px', height: '160px', borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(196,90,45,0.12) 0%, transparent 70%)',
-      }} />
-
       {/* 顶部 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -96,14 +83,11 @@ export default function ShareCardCanvas({ chart, birth, highlight }: ShareCardPr
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-          <div style={{ fontSize: '10px', color: '#6b5d3f', letterSpacing: '0.05em' }}>
-            {birth.year}年{birth.month}月{birth.day}日 · {birth.hour.padStart(2,'0')}:{birth.minute.padStart(2,'0')}
-            <span style={{ margin: '0 4px', color: '#b8922a' }}>·</span>
-            {birth.gender === 'male' ? '男命' : '女命'}
-            {birth.city && <><span style={{ margin: '0 4px', color: '#b8922a' }}>·</span>{birth.city}</>}
+          <div style={{ fontSize: '10px', color: '#6b5d3f', letterSpacing: '0.08em' }}>
+            脱敏分享卡
           </div>
           <div style={{ fontSize: '8px', color: '#b8922a', letterSpacing: '0.08em', marginTop: '2px' }}>
-            wdyziweidoushu666.com
+            {payload.siteUrl}
           </div>
         </div>
       </div>
@@ -157,7 +141,7 @@ export default function ShareCardCanvas({ chart, birth, highlight }: ShareCardPr
                   </span>
                   <span style={{ fontSize: '7px', opacity: 0.7 }}>{BRANCH_NAMES[cell.branch]}</span>
                 </div>
-                {/* 主星 */}
+                {/* 脱敏示意：分享图不展开完整星曜，只标记命身宫 */}
                 <div style={{
                   marginTop: '2px',
                   display: 'flex',
@@ -166,19 +150,15 @@ export default function ShareCardCanvas({ chart, birth, highlight }: ShareCardPr
                   flex: 1,
                   justifyContent: 'center',
                 }}>
-                  {cell.majors.length > 0 ? cell.majors.slice(0, 2).map((s, j) => (
-                    <div key={j} style={{
+                  <div style={{
                       fontSize: '11px',
                       fontWeight: 600,
                       color: cell.isMing ? '#8b6a14' : '#3d2f10',
                       letterSpacing: '0.02em',
                       lineHeight: 1.1,
                     }}>
-                      {s.name}{s.siHua ? <span style={{ fontSize: '8px', color: '#c45a2d', marginLeft: '1px' }}>{s.siHua}</span> : ''}
-                    </div>
-                  )) : (
-                    <div style={{ fontSize: '9px', color: '#a89b7c', fontStyle: 'italic' }}>空宫</div>
-                  )}
+                    {cell.isMing ? '命宫' : cell.isShen ? '身宫' : '脱敏'}
+                  </div>
                 </div>
               </div>
             );
@@ -210,43 +190,64 @@ export default function ShareCardCanvas({ chart, birth, highlight }: ShareCardPr
           <div>
             <div style={{ fontSize: '10px', color: '#a89b7c', letterSpacing: '0.25em', marginBottom: '2px' }}>命 宫 · {mingBranchName}</div>
             <div style={{
-              fontSize: '52px',
+              fontSize: mingStarStr.length > 5 ? '34px' : '48px',
               fontWeight: 800,
               color: '#8b6a14',
               letterSpacing: '0.03em',
               lineHeight: 1,
-              marginBottom: '12px',
+              marginBottom: '10px',
             }}>{mingStarStr}</div>
 
-            {/* 高亮 */}
-            {highlight && (
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '5px',
+              marginBottom: '10px',
+            }}>
+              {payload.tags.slice(0, 4).map(tag => (
+                <span key={tag} style={{
+                  fontSize: '9px',
+                  color: '#8b6a14',
+                  padding: '3px 6px',
+                  background: 'rgba(255,255,255,0.55)',
+                  border: '1px solid rgba(184,146,42,0.2)',
+                  borderRadius: '999px',
+                }}>{tag}</span>
+              ))}
+            </div>
+
+            {payload.summary && (
               <div style={{
-                fontSize: '12px',
+                fontSize: '11px',
                 color: '#5b4c2e',
                 fontWeight: 500,
                 padding: '8px 10px',
                 background: 'rgba(255,255,255,0.5)',
                 borderLeft: '3px solid #b8922a',
                 borderRadius: '4px',
-                letterSpacing: '0.04em',
-                marginBottom: '12px',
-              }}>{highlight}</div>
+                letterSpacing: '0.02em',
+                lineHeight: 1.45,
+                marginBottom: '10px',
+                maxHeight: '82px',
+                overflow: 'hidden',
+                whiteSpace: 'pre-line',
+              }}>{payload.summary}</div>
             )}
           </div>
 
           {/* 当前大限 + slogan */}
           <div>
-            {dx && (
-              <div style={{
-                fontSize: '11px',
-                color: '#3d2f10',
-                marginBottom: '10px',
-                letterSpacing: '0.05em',
-              }}>
-                <span style={{ color: '#a89b7c' }}>当前大限 </span>
-                <span style={{ fontWeight: 600 }}>{dx.startAge}–{dx.endAge} 岁 · {dx.palaceName}</span>
-              </div>
-            )}
+            <div style={{
+              fontSize: '10px',
+              color: '#3d2f10',
+              marginBottom: '8px',
+              letterSpacing: '0.04em',
+              lineHeight: 1.45,
+            }}>
+              {payload.highlights.slice(0, 3).map(item => (
+                <div key={item}>• {item}</div>
+              ))}
+            </div>
             <div style={{
               padding: '10px 12px',
               background: 'linear-gradient(135deg, rgba(212,169,72,0.18) 0%, rgba(184,146,42,0.08) 100%)',

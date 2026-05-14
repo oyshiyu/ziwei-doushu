@@ -1,6 +1,6 @@
 # 紫微斗数 · 开源排盘引擎
 
-基于**倪海夏《天纪》**教学体系的紫微斗数排盘系统，包含完整排盘算法、四化系统、格局知识库、古籍原文数据、OpenAI 兼容 AI 解读接口，以及 **51.8 万条命盘样本数据**。
+基于**倪海夏《天纪》**教学体系的紫微斗数排盘系统，包含完整排盘算法、四化系统、格局知识库、古籍原文数据、OpenAI / DeepSeek 兼容 AI 解读接口，以及 **51.8 万条命盘样本数据**。
 
 线上体验：[wdyziweidoushu666.com](https://wdyziweidoushu666.com)
 
@@ -81,7 +81,7 @@ Expand-Archive combined.zip
 完整的 Next.js 15 前端，包含：
 
 - 排盘工作台（命盘方格、宫位详情、星曜面板）
-- AI 命盘解读面板（OpenAI 兼容协议，支持流式输出、核心摘要、主题/宫位/星曜/四化焦点、深度展开和追问）
+- AI 命盘解读面板（OpenAI / DeepSeek 兼容协议，支持流式输出、核心摘要、主题/宫位/星曜/四化焦点、深度展开和追问）
 - 合盘分析页
 - 古籍阅读器（全文搜索）
 - 命理百科（14 主星 + 12 宫位知识页）
@@ -106,7 +106,7 @@ Expand-Archive combined.zip
 
 开源版保留本地排盘 API：`/api/generate`。它只负责把出生信息转换为命盘结构，便于前端排盘工作台独立运行。
 
-开源版也提供 OpenAI 兼容的流式 AI 解读接口：`/api/interpret`。配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL` 后，排盘页的 AI 解读面板即可调用兼容 `/v1/chat/completions` 的模型服务。
+开源版也提供 OpenAI 兼容的流式 AI 解读接口：`/api/interpret`。默认可配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL` 调用兼容 `/v1/chat/completions` 的模型服务；也可设置 `AI_PROVIDER=deepseek` 并配置 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` 使用 DeepSeek。
 
 ---
 
@@ -128,7 +128,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-> 注意：开源版包含 `/api/generate` 本地排盘接口和 OpenAI 兼容的 `/api/interpret` 流式解读接口。未配置 AI API Key 时，排盘算法、排盘接口和前端命盘工作台仍可独立运行。
+> 注意：开源版包含 `/api/generate` 本地排盘接口和 OpenAI / DeepSeek 兼容的 `/api/interpret` 流式解读接口。未配置 AI API Key 时，排盘算法、排盘接口和前端命盘工作台仍可独立运行。
 
 ---
 

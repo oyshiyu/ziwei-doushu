@@ -10,6 +10,7 @@ import FamousPersonCard from '@/components/FamousPersonCard';
 import ShareModal from '@/components/ShareModal';
 import { FAMOUS_PERSONS } from '@/lib/ziwei/famous';
 import type { BirthInfo, ZiweiChart, Star, Palace } from '@/lib/ziwei/types';
+import type { SafeSharePayload } from '@/lib/ziwei/insight-workbench';
 import { formToSearchParams, searchParamsToForm, formToBirthInfo } from '@/lib/ziwei/share';
 import { useHistory } from '@/lib/ziwei/history';
 
@@ -29,6 +30,7 @@ export default function ChartPage() {
   const [formKey, setFormKey] = useState(0);
   const [copied, setCopied] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [sharePayload, setSharePayload] = useState<SafeSharePayload | null>(null);
   const [chartMode, setChartMode] = useState<ChartMode>('compact');
   const [leftPaneWidth, setLeftPaneWidth] = useState(COMPACT_PANE_WIDTH);
 
@@ -96,18 +98,9 @@ export default function ChartPage() {
     }
   };
 
-  // ── 分享：暂关闭（隐私问题：分享卡含出生日期+城市，等于暴露身份信息）──
-  // 后续要做需先解决：① 出生信息脱敏（只保留命宫主星等不可逆信息）
-  //                  ② 用户主动选择分享多少信息
-  //                  ③ 链接生成短码避免 URL 暴露
   const handleShare = () => {
-    alert('分享功能正在完善中（隐私脱敏方案）— 公测版本将正式开放');
+    setShareModalOpen(true);
   };
-
-  // 计算分享 URL（OG 卡片图改为前端 Canvas 渲染，不再走 SSR）
-  const shareUrl = savedForm
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/chart?${formToSearchParams(savedForm).toString()}`
-    : '';
 
   const handleLoadHistory = (form: BirthFormState) => {
     setSavedForm(form);
@@ -324,7 +317,7 @@ export default function ChartPage() {
             onViewChange={setView}
             onYearChange={setLiunianYear}
             onMonthChange={setLiuyueMonth}
-            onShare={savedForm ? handleShare : undefined}
+            onShare={sharePayload ? handleShare : undefined}
             onExport={() => window.print()}
             copied={copied}
           />
@@ -422,6 +415,7 @@ export default function ChartPage() {
                 liuyueMonth={liuyueMonth}
                 focus={focus}
                 onClearFocus={() => setFocus(null)}
+                onSharePayloadChange={setSharePayload}
               />
             </div>
 
@@ -430,21 +424,12 @@ export default function ChartPage() {
       )}
 
       {/* 分享弹窗（含卡片图 + 下载 + 复制链接）*/}
-      {savedForm && (
+      {chart && sharePayload && (
         <ShareModal
           open={shareModalOpen}
           onClose={() => setShareModalOpen(false)}
-          shareUrl={shareUrl}
           chart={chart}
-          birth={{
-            year: savedForm.year,
-            month: savedForm.month,
-            day: savedForm.day,
-            hour: savedForm.clockHour,
-            minute: savedForm.clockMinute,
-            gender: savedForm.gender,
-            city: savedForm.city || undefined,
-          }}
+          payload={sharePayload}
         />
       )}
     </div>

@@ -6,6 +6,7 @@ export interface InterpretMessage {
 }
 
 export interface OpenAICompatibleConfig {
+  provider: 'openai' | 'deepseek';
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -15,16 +16,35 @@ type Env = Record<string, string | undefined>;
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 export function resolveOpenAICompatibleConfig(env: Env = process.env): OpenAICompatibleConfig {
+  const provider = resolveProvider(env);
+
+  if (provider === 'deepseek') {
+    const apiKey = env.DEEPSEEK_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error('缺少 DEEPSEEK_API_KEY，请在 .env.local 中配置 DeepSeek API Key');
+    }
+
+    return {
+      provider,
+      apiKey,
+      baseUrl: normalizeBaseUrl(env.DEEPSEEK_BASE_URL ?? DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_BASE_URL),
+      model: env.DEEPSEEK_MODEL?.trim() || DEFAULT_DEEPSEEK_MODEL,
+    };
+  }
+
   const apiKey = env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error('缺少 OPENAI_API_KEY，请在 .env.local 中配置 OpenAI API Key');
+    throw new Error('缺少 OPENAI_API_KEY，请在 .env.local 中配置 OpenAI API Key，或设置 AI_PROVIDER=deepseek 并配置 DEEPSEEK_API_KEY');
   }
 
   return {
+    provider,
     apiKey,
-    baseUrl: normalizeBaseUrl(env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL),
+    baseUrl: normalizeBaseUrl(env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_BASE_URL),
     model: env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL,
   };
 }
@@ -81,8 +101,15 @@ export function convertOpenAIStreamLine(line: string): string | null {
   }
 }
 
-function normalizeBaseUrl(value: string): string {
+function resolveProvider(env: Env): OpenAICompatibleConfig['provider'] {
+  const provider = env.AI_PROVIDER?.trim().toLowerCase();
+  if (!provider) return env.DEEPSEEK_API_KEY?.trim() && !env.OPENAI_API_KEY?.trim() ? 'deepseek' : 'openai';
+  if (provider === 'openai' || provider === 'deepseek') return provider;
+  throw new Error('AI_PROVIDER 只能是 openai 或 deepseek');
+}
+
+function normalizeBaseUrl(value: string, fallback: string): string {
   const trimmed = value.trim();
-  if (!trimmed) return DEFAULT_OPENAI_BASE_URL;
+  if (!trimmed) return fallback;
   return trimmed.replace(/\/+$/, '');
 }

@@ -3,29 +3,35 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ZiweiChart } from '@/lib/ziwei/types';
+import type { SafeSharePayload } from '@/lib/ziwei/insight-workbench';
 import ShareCardCanvas, { captureShareCard, downloadDataURL } from './ShareCardCanvas';
 
 interface ShareModalProps {
   open: boolean;
   onClose: () => void;
-  shareUrl: string;
   chart: ZiweiChart | null;
-  birth: { year: string; month: string; day: string; hour: string; minute: string; gender: 'male' | 'female'; city?: string };
-  highlight?: string;
+  payload: SafeSharePayload;
 }
 
-export default function ShareModal({ open, onClose, shareUrl, chart, birth, highlight }: ShareModalProps) {
+export default function ShareModal({ open, onClose, chart, payload }: ShareModalProps) {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  const copyLink = async () => {
+  const copySummary = async () => {
+    const text = [
+      payload.title,
+      payload.summary,
+      payload.highlights.length ? `三条重点：\n${payload.highlights.map(item => `- ${item}`).join('\n')}` : '',
+      `公开标签：${payload.tags.join(' / ')}`,
+      payload.siteUrl,
+    ].filter(Boolean).join('\n\n');
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      const el = document.createElement('input');
-      el.value = shareUrl;
+      const el = document.createElement('textarea');
+      el.value = text;
       document.body.appendChild(el);
       el.select();
       document.execCommand('copy');
@@ -82,7 +88,7 @@ export default function ShareModal({ open, onClose, shareUrl, chart, birth, high
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             }}>
               <div style={{ fontSize: '14px', fontWeight: 600, color: '#3d2f10', letterSpacing: '0.12em' }}>
-                ✦ 分享命盘
+                ✦ 脱敏分享
               </div>
               <button onClick={onClose}
                 style={{
@@ -96,12 +102,12 @@ export default function ShareModal({ open, onClose, shareUrl, chart, birth, high
             {/* 卡片图预览（实际渲染） */}
             <div style={{ padding: '20px', background: '#fbf6e8', display: 'flex', justifyContent: 'center', overflowX: 'auto' }}>
               {chart && (
-                <ShareCardCanvas chart={chart} birth={birth} highlight={highlight} />
+                <ShareCardCanvas chart={chart} payload={payload} />
               )}
             </div>
 
             <div style={{ padding: '0 20px 12px', textAlign: 'center', fontSize: '11px', color: '#a89b7c', letterSpacing: '0.05em' }}>
-              ↑ 朋友圈 / 微信 / 抖音 / 小红书 都能用
+              仅包含摘要、重点和公开命盘标签，不含完整生日、城市或坐标
             </div>
 
             {/* 操作区 */}
@@ -119,7 +125,7 @@ export default function ShareModal({ open, onClose, shareUrl, chart, birth, high
                 {downloading ? '生成中…' : '⬇ 下载分享图'}
               </button>
 
-              <button onClick={copyLink}
+              <button onClick={copySummary}
                 style={{
                   padding: '14px', borderRadius: '10px',
                   border: '1px solid rgba(184,146,42,0.4)', background: 'white',
@@ -127,7 +133,7 @@ export default function ShareModal({ open, onClose, shareUrl, chart, birth, high
                   cursor: 'pointer',
                 }}
               >
-                {copied ? '✓ 已复制链接' : '🔗 复制命盘链接'}
+                {copied ? '✓ 已复制摘要' : '复制脱敏摘要'}
               </button>
 
               <div style={{
@@ -136,8 +142,8 @@ export default function ShareModal({ open, onClose, shareUrl, chart, birth, high
                 borderRadius: '8px', marginTop: '4px',
               }}>
                 <div style={{ marginBottom: '4px', fontWeight: 600, color: '#8b6a14' }}>使用提示：</div>
-                · 下载图片可发朋友圈 / 抖音 / 小红书<br />
-                · 复制链接发给微信好友，对方点开看自己的盘起点
+                · 分享图只显示命宫主星、格局标签和 AI 摘要<br />
+                · 不生成含出生参数的分享 URL
               </div>
             </div>
           </motion.div>

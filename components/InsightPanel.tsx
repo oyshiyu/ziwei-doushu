@@ -1,8 +1,25 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ZiweiChart, Palace, Star } from '@/lib/ziwei/types';
 import type { TimeView } from './TimeNav';
+import {
+  buildFocusEvidence,
+  buildSafeSharePayload,
+  buildSummaryEvidence,
+  createSavedInsightEntry,
+  deleteSavedInsightEntry,
+  getChartInsightId,
+  getInsightCacheKey,
+  loadSavedInsightEntries,
+  saveInsightEntry,
+  sanitizeShareText,
+  type FocusEvidenceInput,
+  type InsightKind,
+  type InsightEvidence,
+  type SafeSharePayload,
+  type SavedInsightEntry,
+} from '@/lib/ziwei/insight-workbench';
 
 interface ChatMessage {
   id: string;
@@ -11,6 +28,9 @@ interface ChatMessage {
 }
 
 type LoadingTarget = 'summary' | 'focus' | 'expanded' | 'chat' | null;
+type RequestTarget = Exclude<LoadingTarget, null>;
+type LoadingState = Record<RequestTarget, boolean>;
+type ErrorState = Partial<Record<RequestTarget, string>>;
 
 interface SelectedStar {
   star: Star;
@@ -31,6 +51,7 @@ interface InsightPanelProps {
   selectedStar?: SelectedStar | null;
   selectedPalace?: Palace | null;
   selectedSiHua?: SelectedSiHua | null;
+  onSharePayloadChange?: (payload: SafeSharePayload) => void;
 }
 
 interface FocusState {
@@ -39,6 +60,7 @@ interface FocusState {
   kind: 'topic' | 'star' | 'palace' | 'sihua';
   briefPrompt: string;
   deepPrompt: string;
+  evidenceInput: FocusEvidenceInput;
 }
 
 const TOPICS = [
@@ -215,6 +237,7 @@ function buildTopicFocus(topicKey: string): FocusState {
     kind: 'topic',
     briefPrompt: buildFocusBriefPrompt(label, `用户选择了「${label}」主题，请从该主题给出短版判断。`),
     deepPrompt: TOPIC_DEEP_PROMPTS[topicKey] ?? TOPIC_DEEP_PROMPTS.overview,
+    evidenceInput: { kind: 'topic', key: `topic:${topicKey}`, label },
   };
 }
 
@@ -236,6 +259,13 @@ function buildStarFocus(selectedStar: SelectedStar): FocusState {
     label,
     kind: 'star',
     briefPrompt: buildFocusBriefPrompt(label, basis),
+    evidenceInput: {
+      kind: 'star',
+      key: `star:${selectedStar.star.name}:${selectedStar.palace.branch}`,
+      label,
+      star: selectedStar.star,
+      palace: selectedStar.palace,
+    },
     deepPrompt: `请重点分析【${selectedStar.star.name}】在【${selectedStar.palace.name}】的含义，按以下结构输出：
 
 **【星曜定性】**
@@ -261,6 +291,7 @@ function buildPalaceFocus(palace: Palace): FocusState {
     label: palace.name,
     kind: 'palace',
     briefPrompt: buildFocusBriefPrompt(palace.name, basis),
+    evidenceInput: { kind: 'palace', key: `palace:${palace.branch}`, label: palace.name, palace },
     deepPrompt: `请重点分析【${palace.name}】（主管：${role}），该宫主星为${starDesc}，按以下结构输出：
 
 **【宫位定性】**
@@ -296,6 +327,14 @@ function buildSiHuaFocus(chart: ZiweiChart, selectedSiHua: SelectedSiHua): Focus
     label,
     kind: 'sihua',
     briefPrompt: buildFocusBriefPrompt(label, basis),
+    evidenceInput: {
+      kind: 'sihua',
+      key: `sihua:${selectedSiHua.starName}:${selectedSiHua.siHua}:${selectedSiHua.view}:${selectedSiHua.year ?? ''}:${selectedSiHua.month ?? ''}`,
+      label,
+      palace: palaceOfStar,
+      starName: selectedSiHua.starName,
+      siHua: selectedSiHua.siHua,
+    },
     deepPrompt: `请分析【${label}】的飞化影响，按以下结构输出：
 
 **【化${selectedSiHua.siHua}基本含义】**
@@ -437,7 +476,59 @@ function PanelSection({
   );
 }
 
-export default function InsightPanel({ chart, selectedStar, selectedPalace, selectedSiHua }: InsightPanelProps) {
+function EvidenceBlock({ evidence }: { evidence: InsightEvidence }) {
+  return (
+    <div
+      className="mt-3 rounded-lg px-3 py-2.5"
+      style={{
+        background: 'rgba(212,168,67,0.045)',
+        border: '1px solid rgba(212,168,67,0.14)',
+      }}
+    >
+      <div className="mb-2 text-[10px] font-semibold tracking-widest" style={{ color: 'var(--t-gold)' }}>
+        {evidence.title}
+      </div>
+      <div className="space-y-1.5">
+        {evidence.items.map(item => (
+          <div key={`${item.label}-${item.value}`} className="grid grid-cols-[64px_1fr] gap-2 text-[12px] leading-5">
+            <span style={{ color: 'var(--t-faint)' }}>{item.label}</span>
+            <span style={{ color: 'var(--t-text2)' }}>{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActionButton({
+  children,
+  onClick,
+  disabled,
+  variant = 'plain',
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: 'plain' | 'gold';
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-35"
+      style={{
+        background: variant === 'gold' ? 'rgba(212,168,67,0.12)' : 'var(--t-card)',
+        border: variant === 'gold' ? '1px solid rgba(212,168,67,0.25)' : '1px solid var(--t-border)',
+        color: variant === 'gold' ? 'var(--t-gold)' : 'var(--t-text2)',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function InsightPanel({ chart, selectedStar, selectedPalace, selectedSiHua, onSharePayloadChange }: InsightPanelProps) {
   const [summary, setSummary] = useState('');
   const [activeTopic, setActiveTopic] = useState<string>('overview');
   const [focus, setFocus] = useState<FocusState>(() => buildTopicFocus('overview'));
@@ -445,12 +536,25 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
   const [expandedInsight, setExpandedInsight] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [loadingTarget, setLoadingTarget] = useState<LoadingTarget>(null);
-  const [error, setError] = useState<{ target: Exclude<LoadingTarget, null>; message: string } | null>(null);
+  const [loading, setLoading] = useState<LoadingState>({ summary: false, focus: false, expanded: false, chat: false });
+  const [errors, setErrors] = useState<ErrorState>({});
   const [expandedInsightKey, setExpandedInsightKey] = useState('');
+  const [savedEntries, setSavedEntries] = useState<SavedInsightEntry[]>([]);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
 
-  const abortRef = useRef<AbortController | null>(null);
-  const requestIdRef = useRef(0);
+  const chartId = useMemo(() => getChartInsightId(chart), [chart]);
+  const summaryEvidence = useMemo(() => buildSummaryEvidence(chart), [chart]);
+  const focusEvidence = useMemo(() => buildFocusEvidence(chart, focus.evidenceInput), [chart, focus]);
+  const sharePayload = useMemo(() => buildSafeSharePayload({
+    chart,
+    summary,
+    focusLabel: focus.label,
+    focusInsight,
+  }), [chart, focus.label, focusInsight, summary]);
+
+  const abortRefs = useRef<Partial<Record<RequestTarget, AbortController>>>({});
+  const requestIdRefs = useRef<Record<RequestTarget, number>>({ summary: 0, focus: 0, expanded: 0, chat: 0 });
   const focusRef = useRef<FocusState>(focus);
   const summaryRef = useRef('');
   const focusInsightRef = useRef('');
@@ -466,8 +570,17 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
   useEffect(() => { chatMessagesRef.current = chatMessages; }, [chatMessages]);
 
   useEffect(() => {
-    return () => abortRef.current?.abort();
+    return () => abortAll();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setSavedEntries(loadSavedInsightEntries(window.localStorage, chartId));
+  }, [chartId]);
+
+  useEffect(() => {
+    onSharePayloadChange?.(sharePayload);
+  }, [onSharePayloadChange, sharePayload]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -475,19 +588,49 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
     }
   }, [chatMessages, summary, focusInsight, expandedInsight]);
 
+  const abortAll = () => {
+    Object.values(abortRefs.current).forEach(controller => controller?.abort());
+    abortRefs.current = {};
+  };
+
+  const readCache = (cacheKey: string) => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return window.localStorage.getItem(cacheKey) ?? '';
+    } catch {
+      return '';
+    }
+  };
+
+  const writeCache = (cacheKey: string, value: string) => {
+    if (typeof window === 'undefined' || !value.trim()) return;
+    try {
+      window.localStorage.setItem(cacheKey, sanitizeForChart(value));
+    } catch {
+      // Local caching is opportunistic; the streamed result is already visible.
+    }
+  };
+
+  const sanitizeForChart = (value: string) => sanitizeShareText(value, [
+    chart.birthInfo.name,
+    chart.birthInfo.province,
+    chart.birthInfo.city,
+    chart.birthInfo.longitude === undefined ? undefined : String(chart.birthInfo.longitude),
+  ].filter((item): item is string => Boolean(item)));
+
   const streamInsight = async (
-    target: Exclude<LoadingTarget, null>,
+    target: RequestTarget,
     apiMessages: { role: 'user' | 'assistant'; content: string }[],
     onDelta: (text: string) => void,
     onDone?: (text: string) => void,
   ) => {
-    abortRef.current?.abort();
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
+    abortRefs.current[target]?.abort();
+    const requestId = requestIdRefs.current[target] + 1;
+    requestIdRefs.current[target] = requestId;
     const abortController = new AbortController();
-    abortRef.current = abortController;
-    setLoadingTarget(target);
-    setError(null);
+    abortRefs.current[target] = abortController;
+    setLoading(prev => ({ ...prev, [target]: true }));
+    setErrors(prev => ({ ...prev, [target]: undefined }));
 
     let assistantText = '';
     try {
@@ -507,7 +650,7 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (abortController.signal.aborted || requestId !== requestIdRef.current) break;
+        if (abortController.signal.aborted || requestId !== requestIdRefs.current[target]) break;
         pending += decoder.decode(value, { stream: true });
         const lines = pending.split(/\r?\n/);
         pending = lines.pop() ?? '';
@@ -525,7 +668,7 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
           }
         }
       }
-      if (pending && !abortController.signal.aborted && requestId === requestIdRef.current) {
+      if (pending && !abortController.signal.aborted && requestId === requestIdRefs.current[target]) {
         const data = pending.startsWith('data: ') ? pending.slice(6) : '';
         if (data && data !== '[DONE]') {
           try {
@@ -537,36 +680,46 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
           }
         }
       }
-      if (!abortController.signal.aborted && requestId === requestIdRef.current) {
+      if (!abortController.signal.aborted && requestId === requestIdRefs.current[target]) {
         onDone?.(assistantText);
       }
     } catch (streamError) {
       if (abortController.signal.aborted || (streamError instanceof DOMException && streamError.name === 'AbortError')) {
         return;
       }
-      setError({ target, message: '解读失败，请稍后重试。' });
+      setErrors(prev => ({ ...prev, [target]: '解读失败，请稍后重试。' }));
     } finally {
-      if (requestId === requestIdRef.current) {
-        setLoadingTarget(null);
-        abortRef.current = null;
+      if (requestId === requestIdRefs.current[target]) {
+        setLoading(prev => ({ ...prev, [target]: false }));
+        delete abortRefs.current[target];
       }
     }
   };
 
   const requestSummary = () => {
+    const cacheKey = getInsightCacheKey(chart, 'summary', 'root');
+    const cached = readCache(cacheKey);
+    if (cached) {
+      setSummary(cached);
+      return;
+    }
     setSummary('');
     streamInsight(
       'summary',
       [{ role: 'user', content: buildSummaryPrompt() }],
       setSummary,
+      text => writeCache(cacheKey, text),
     );
   };
 
   const requestFocusInsight = (nextFocus: FocusState) => {
+    const cacheKey = getInsightCacheKey(chart, 'focus', nextFocus.key);
+    const cached = readCache(cacheKey);
     setFocus(nextFocus);
-    setFocusInsight('');
+    setFocusInsight(cached);
     setExpandedInsight('');
     setExpandedInsightKey('');
+    if (cached) return;
     streamInsight(
       'focus',
       [
@@ -575,11 +728,12 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
         { role: 'user', content: nextFocus.briefPrompt },
       ],
       setFocusInsight,
+      text => writeCache(cacheKey, text),
     );
   };
 
   useEffect(() => {
-    abortRef.current?.abort();
+    abortAll();
     setSummary('');
     setActiveTopic('overview');
     setFocus(buildTopicFocus('overview'));
@@ -588,7 +742,7 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
     setExpandedInsightKey('');
     setChatMessages([]);
     setInput('');
-    setError(null);
+    setErrors({});
     lastStarKey.current = undefined;
     lastPalaceBranch.current = undefined;
     lastSiHuaKey.current = undefined;
@@ -623,17 +777,24 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
   }, [selectedSiHua]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTopicClick = (topicKey: string) => {
-    if (loadingTarget) return;
+    if (loading.focus) return;
     setActiveTopic(topicKey);
     requestFocusInsight(buildTopicFocus(topicKey));
   };
 
   const handleExpand = () => {
     const currentFocus = focusRef.current;
-    if (loadingTarget) return;
+    if (loading.expanded) return;
     if (expandedInsight && expandedInsightKey === currentFocus.key) return;
 
+    const cacheKey = getInsightCacheKey(chart, 'expanded', currentFocus.key);
+    const cached = readCache(cacheKey);
     setExpandedInsight('');
+    if (cached) {
+      setExpandedInsight(cached);
+      setExpandedInsightKey(currentFocus.key);
+      return;
+    }
     streamInsight(
       'expanded',
       [
@@ -651,13 +812,14 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
       setExpandedInsight,
       text => {
         if (text.trim()) setExpandedInsightKey(currentFocus.key);
+        writeCache(cacheKey, text);
       },
     );
   };
 
   const handleSend = () => {
     const question = input.trim();
-    if (!question || loadingTarget) return;
+    if (!question || loading.chat) return;
 
     const userMessage: ChatMessage = { id: nextId('user'), role: 'user', content: question };
     const assistantMessage: ChatMessage = { id: nextId('assistant'), role: 'assistant', content: '' };
@@ -688,11 +850,68 @@ ${focusInsightRef.current || '暂无焦点短解读'}
     );
   };
 
-  const summaryLoading = loadingTarget === 'summary' && !summary;
-  const focusLoading = loadingTarget === 'focus' && !focusInsight;
-  const expandedLoading = loadingTarget === 'expanded';
-  const chatLoading = loadingTarget === 'chat';
-  const isBusy = loadingTarget !== null;
+  const handleRetry = (target: RequestTarget) => {
+    if (target === 'summary') requestSummary();
+    if (target === 'focus') requestFocusInsight(focusRef.current);
+    if (target === 'expanded') handleExpand();
+    if (target === 'chat') setErrors(prev => ({ ...prev, chat: undefined }));
+  };
+
+  const saveCurrentInsight = (kind: InsightKind) => {
+    if (typeof window === 'undefined') return;
+    const content =
+      kind === 'summary'
+        ? summary
+        : kind === 'focus'
+          ? focusInsight
+          : expandedInsight;
+    const safeContent = sanitizeForChart(content);
+    if (!safeContent.trim()) return;
+    const entry = createSavedInsightEntry({
+      chartId,
+      kind,
+      title: kind === 'summary' ? '核心摘要' : kind === 'focus' ? focus.label : `${focus.label} · 深度解读`,
+      content: safeContent,
+      evidence: kind === 'summary' ? summaryEvidence : focusEvidence,
+      focusKey: kind === 'summary' ? undefined : focus.key,
+    });
+    setSavedEntries(saveInsightEntry(window.localStorage, entry));
+    setSavedOpen(true);
+  };
+
+  const removeSavedInsight = (entryId: string) => {
+    if (typeof window === 'undefined') return;
+    setSavedEntries(deleteSavedInsightEntry(window.localStorage, chartId, entryId));
+  };
+
+  const copyShareSummary = async () => {
+    const text = [
+      sharePayload.title,
+      sharePayload.summary,
+      sharePayload.highlights.length ? `重点：\n${sharePayload.highlights.map(item => `- ${item}`).join('\n')}` : '',
+      `标签：${sharePayload.tags.join(' / ')}`,
+      sharePayload.siteUrl,
+    ].filter(Boolean).join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedShare(true);
+      setTimeout(() => setCopiedShare(false), 1800);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopiedShare(true);
+      setTimeout(() => setCopiedShare(false), 1800);
+    }
+  };
+
+  const summaryLoading = loading.summary && !summary;
+  const focusLoading = loading.focus && !focusInsight;
+  const expandedLoading = loading.expanded;
+  const chatLoading = loading.chat;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl card-glass">
@@ -704,7 +923,7 @@ ${focusInsightRef.current || '暂无焦点短解读'}
               <button
                 key={topic.key}
                 onClick={() => handleTopicClick(topic.key)}
-                disabled={isBusy}
+                disabled={loading.focus}
                 className="py-1.5 text-[11px] font-medium rounded-lg transition-all duration-150 disabled:opacity-40"
                 style={{
                   background: isActive ? 'rgba(212,168,67,0.12)' : 'transparent',
@@ -726,14 +945,24 @@ ${focusInsightRef.current || '暂无焦点短解读'}
               正在生成短摘要…
             </p>
           ) : summary ? (
-            <AiContent text={summary} streaming={loadingTarget === 'summary'} />
+            <AiContent text={summary} streaming={loading.summary} />
           ) : (
             <p className="text-[13px] leading-6" style={{ color: 'var(--t-faint)' }}>
               暂无摘要。
             </p>
           )}
-          {error?.target === 'summary' && (
-            <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+          <EvidenceBlock evidence={summaryEvidence} />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ActionButton onClick={() => saveCurrentInsight('summary')} disabled={!summary.trim()}>保存摘要</ActionButton>
+            <ActionButton onClick={copyShareSummary} disabled={!summary.trim()} variant="gold">
+              {copiedShare ? '已复制' : '复制脱敏摘要'}
+            </ActionButton>
+          </div>
+          {errors.summary && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-[12px]" style={{ color: 'var(--ji)' }}>{errors.summary}</p>
+              <ActionButton onClick={() => handleRetry('summary')}>重试摘要</ActionButton>
+            </div>
           )}
         </PanelSection>
 
@@ -743,22 +972,30 @@ ${focusInsightRef.current || '暂无焦点短解读'}
               正在更新焦点解读…
             </p>
           ) : focusInsight ? (
-            <AiContent text={focusInsight} streaming={loadingTarget === 'focus'} />
+            <AiContent text={focusInsight} streaming={loading.focus} />
           ) : (
             <p className="text-[13px] leading-6" style={{ color: 'var(--t-faint)' }}>
               点击上方主题、宫位、星曜或四化查看当前焦点。
             </p>
           )}
 
-          {error?.target === 'focus' && (
-            <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+          <EvidenceBlock evidence={focusEvidence} />
+
+          {errors.focus && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-[12px]" style={{ color: 'var(--ji)' }}>{errors.focus}</p>
+              <ActionButton onClick={() => handleRetry('focus')}>重试焦点</ActionButton>
+            </div>
           )}
 
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ActionButton onClick={() => saveCurrentInsight('focus')} disabled={!focusInsight.trim()}>
+              保存短解读
+            </ActionButton>
             <button
               type="button"
               onClick={handleExpand}
-              disabled={isBusy || !focusInsight || (!!expandedInsight && expandedInsightKey === focus.key)}
+              disabled={loading.expanded || !focusInsight || (!!expandedInsight && expandedInsightKey === focus.key)}
               className="rounded-lg px-3 py-2 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-35"
               style={{
                 background: 'rgba(212,168,67,0.12)',
@@ -770,7 +1007,7 @@ ${focusInsightRef.current || '暂无焦点短解读'}
             </button>
           </div>
 
-          {(expandedInsight || expandedLoading || error?.target === 'expanded') && (
+          {(expandedInsight || expandedLoading || errors.expanded) && (
             <div
               className="mt-3 rounded-xl px-3 py-3"
               style={{
@@ -780,14 +1017,61 @@ ${focusInsightRef.current || '暂无焦点短解读'}
             >
               {expandedInsight ? (
                 <AiContent text={expandedInsight} streaming={expandedLoading} />
-              ) : (
+              ) : expandedLoading ? (
                 <p className="text-[13px] leading-6 animate-pulse" style={{ color: 'var(--t-faint)' }}>
                   正在展开深度解读…
                 </p>
+              ) : null}
+              {errors.expanded && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p className="text-[12px]" style={{ color: 'var(--ji)' }}>{errors.expanded}</p>
+                  <ActionButton onClick={() => handleRetry('expanded')}>重试深度</ActionButton>
+                </div>
               )}
-              {error?.target === 'expanded' && (
-                <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+              {expandedInsight && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <ActionButton onClick={() => saveCurrentInsight('expanded')}>保存深度解读</ActionButton>
+                </div>
               )}
+            </div>
+          )}
+        </PanelSection>
+
+        <PanelSection title="已保存" eyebrow="SAVED">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[13px] leading-6" style={{ color: 'var(--t-faint)' }}>
+              {savedEntries.length ? `当前命盘已保存 ${savedEntries.length} 条解读。` : '当前命盘还没有保存内容。'}
+            </p>
+            <ActionButton onClick={() => setSavedOpen(prev => !prev)} disabled={savedEntries.length === 0}>
+              {savedOpen ? '收起保存' : '查看保存'}
+            </ActionButton>
+          </div>
+          {savedOpen && savedEntries.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {savedEntries.map(entry => (
+                <div
+                  key={entry.id}
+                  className="rounded-lg px-3 py-2.5"
+                  style={{ background: 'var(--t-card)', border: '1px solid var(--t-border)' }}
+                >
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <div className="min-w-0 truncate text-[12px] font-semibold" style={{ color: 'var(--t-text)' }}>
+                      {entry.title}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeSavedInsight(entry.id)}
+                      className="text-[12px]"
+                      style={{ color: 'var(--t-faint)' }}
+                    >
+                      删除
+                    </button>
+                  </div>
+                  <p className="whitespace-pre-line text-[12px] leading-5" style={{ color: 'var(--t-text2)', maxHeight: '60px', overflow: 'hidden' }}>
+                    {entry.content}
+                  </p>
+                </div>
+              ))}
             </div>
           )}
         </PanelSection>
@@ -831,8 +1115,11 @@ ${focusInsightRef.current || '暂无焦点短解读'}
               </AnimatePresence>
             </div>
           )}
-          {error?.target === 'chat' && (
-            <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+          {errors.chat && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-[12px]" style={{ color: 'var(--ji)' }}>{errors.chat}</p>
+              <ActionButton onClick={() => handleRetry('chat')}>知道了</ActionButton>
+            </div>
           )}
         </PanelSection>
       </div>
@@ -845,7 +1132,7 @@ ${focusInsightRef.current || '暂无焦点短解读'}
             onChange={event => setInput(event.target.value)}
             onKeyDown={event => event.key === 'Enter' && !event.shiftKey && handleSend()}
             placeholder="继续追问，如：今年适合换工作吗？"
-            disabled={isBusy}
+            disabled={loading.chat}
             className="flex-1 rounded-lg px-3 py-2.5 text-[13px] focus:outline-none transition-colors"
             style={{
               background: 'var(--t-card)',
@@ -855,7 +1142,7 @@ ${focusInsightRef.current || '暂无焦点短解读'}
           />
           <button
             onClick={handleSend}
-            disabled={isBusy || !input.trim()}
+            disabled={loading.chat || !input.trim()}
             className="px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
               background: 'rgba(212,168,67,0.15)',

@@ -3,6 +3,7 @@
 import BaseInsightPanel from '@/components/InsightPanel';
 import type { Palace, Star, ZiweiChart } from '@/lib/ziwei/types';
 import type { TimeView } from '@/components/chart/TopBar';
+import type { SafeSharePayload } from '@/lib/ziwei/insight-workbench';
 
 export type FocusState =
   | { type: 'star'; label: string; star: Star; palace: Palace }
@@ -16,9 +17,10 @@ interface InsightPanelProps {
   liuyueMonth: number;
   focus: FocusState | null;
   onClearFocus?: () => void;
+  onSharePayloadChange?: (payload: SafeSharePayload) => void;
 }
 
-export default function InsightPanel({ chart, view, liunianYear, liuyueMonth, focus }: InsightPanelProps) {
+export default function InsightPanel({ chart, view, liunianYear, liuyueMonth, focus, onSharePayloadChange }: InsightPanelProps) {
   const selectedPalace =
     focus?.type === 'palace'
       ? focus.palace
@@ -46,6 +48,7 @@ export default function InsightPanel({ chart, view, liunianYear, liuyueMonth, fo
       selectedStar={selectedStar}
       selectedPalace={selectedPalace}
       selectedSiHua={selectedSiHua}
+      onSharePayloadChange={onSharePayloadChange}
     />
   );
 }
