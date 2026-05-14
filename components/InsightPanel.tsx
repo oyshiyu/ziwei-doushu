@@ -1,18 +1,16 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ZiweiChart, Palace, Star } from '@/lib/ziwei/types';
 import type { TimeView } from './TimeNav';
 
-interface Message {
+interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  apiContent?: string;
-  hidden?: boolean; // don't show user bubble for auto/topic messages
 }
 
-type DetailMode = 'standard' | 'deep';
+type LoadingTarget = 'summary' | 'focus' | 'expanded' | 'chat' | null;
 
 interface SelectedStar {
   star: Star;
@@ -35,16 +33,26 @@ interface InsightPanelProps {
   selectedSiHua?: SelectedSiHua | null;
 }
 
+interface FocusState {
+  key: string;
+  label: string;
+  kind: 'topic' | 'star' | 'palace' | 'sihua';
+  briefPrompt: string;
+  deepPrompt: string;
+}
+
 const TOPICS = [
-  { key: 'overview',     label: '命格' },
-  { key: 'love',        label: '感情' },
-  { key: 'career',      label: '事业' },
-  { key: 'wealth',      label: '财运' },
-  { key: 'health',      label: '健康' },
+  { key: 'overview', label: '命格' },
+  { key: 'love', label: '感情' },
+  { key: 'career', label: '事业' },
+  { key: 'wealth', label: '财运' },
+  { key: 'health', label: '健康' },
   { key: 'personality', label: '性格' },
 ] as const;
 
-const TOPIC_PROMPTS: Record<string, string> = {
+const TOPIC_LABELS = Object.fromEntries(TOPICS.map(topic => [topic.key, topic.label])) as Record<string, string>;
+
+const TOPIC_DEEP_PROMPTS: Record<string, string> = {
   overview: `请生成命格总览，按以下结构输出：
 
 **【命格定性】**
@@ -143,7 +151,7 @@ const TOPIC_PROMPTS: Record<string, string> = {
 };
 
 const PALACE_ROLES: Record<string, string> = {
-  '命宫':   '自我、性格、先天格局',
+  '命宫': '自我、性格、先天格局',
   '兄弟宫': '兄弟关系、合伙人',
   '夫妻宫': '感情关系、婚姻状态',
   '子女宫': '子女缘分、下属关系',
@@ -157,104 +165,78 @@ const PALACE_ROLES: Record<string, string> = {
   '父母宫': '父母关系、文书契约',
 };
 
-/** Render AI markdown: **【Title】** → gold header, **bold** → strong */
-function AiContent({ text, streaming }: { text: string; streaming?: boolean }) {
-  const lines = text.split('\n');
-  return (
-    <div className="space-y-0.5">
-      {lines.map((line, i) => {
-        const sectionMatch = line.match(/^\*\*【(.+?)】\*\*$/);
-        if (sectionMatch) {
-          return (
-            <div key={i} className="pt-3 pb-0.5 first:pt-0">
-              <span className="text-[11px] font-semibold tracking-wide" style={{ color: 'var(--t-gold)' }}>
-                【{sectionMatch[1]}】
-              </span>
-            </div>
-          );
-        }
-        if (line.trim() === '') return <div key={i} className="h-1" />;
-        const parts = line.split(/\*\*(.+?)\*\*/);
-        return (
-          <div key={i} className="text-[11px] leading-relaxed" style={{ color: 'var(--t-text2)' }}>
-            {parts.map((part, j) =>
-              j % 2 === 0
-                ? part
-                : <strong key={j} className="font-medium" style={{ color: 'var(--t-text)' }}>{part}</strong>
-            )}
-          </div>
-        );
-      })}
-      {streaming && (
-        <span
-          className="inline-block w-1.5 h-3 ml-0.5 animate-pulse rounded-sm align-middle"
-          style={{ background: 'var(--t-gold)', opacity: 0.6 }}
-        />
-      )}
-    </div>
-  );
+function nextId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export default function InsightPanel({ chart, selectedStar, selectedPalace, selectedSiHua }: InsightPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [activeTopic, setActiveTopic] = useState<string>('overview');
-  const [detailMode, setDetailMode] = useState<DetailMode>('standard');
-  const messagesRef = useRef<Message[]>([]); // always-current copy for closures
-  const loadingRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const requestIdRef = useRef(0);
-  const autoLoaded = useRef(false);
-  const lastStarKey = useRef<string | undefined>(undefined);
-  const lastPalaceBranch = useRef<number | undefined>(undefined);
-  const lastSiHuaKey = useRef<string | undefined>(undefined);
-  const scrollRef = useRef<HTMLDivElement>(null);
+function buildSummaryPrompt() {
+  return `请只生成命盘核心摘要，不要输出长文，不要展开理论。
 
-  // Keep refs in sync
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
+格式必须严格如下：
+【一句话】
+不超过28个中文字符
 
-  useEffect(() => {
-    return () => abortRef.current?.abort();
-  }, []);
+【三条重点】
+1. 不超过24个中文字符
+2. 不超过24个中文字符
+3. 不超过24个中文字符
 
-  // Auto-scroll
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+【建议先看】
+主题或宫位名称 + 一句话理由
 
-  const nextMessageId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+总长度控制在120个中文字符左右，语气温和，不做确定性预测。`;
+}
 
-  const applyDetailMode = (prompt: string) => {
-    if (detailMode === 'deep') {
-      return `${prompt}
+function buildFocusBriefPrompt(label: string, basis: string) {
+  return `请围绕【${label}】生成当前焦点短解读，不要输出长文。
 
-请使用深度模式：每个小节展开到 2-3 段，明确写出命盘依据、三方四正联动、可验证的现实表现，以及可以马上执行的建议。`;
-    }
-    return `${prompt}
+已知焦点：${basis}
 
-请使用标准模式：保持结构清晰，每个小节控制在 1 段内，优先给出结论和行动建议。`;
+格式必须严格如下：
+【短结论】
+一句话
+
+【关键点】
+1. ...
+2. ...
+3. ...
+
+【提醒】
+温和、非恐吓、可行动
+
+每条尽量短，优先给结论，不要追加历史聊天。`;
+}
+
+function buildTopicFocus(topicKey: string): FocusState {
+  const label = TOPIC_LABELS[topicKey] ?? '命格';
+  return {
+    key: `topic:${topicKey}`,
+    label,
+    kind: 'topic',
+    briefPrompt: buildFocusBriefPrompt(label, `用户选择了「${label}」主题，请从该主题给出短版判断。`),
+    deepPrompt: TOPIC_DEEP_PROMPTS[topicKey] ?? TOPIC_DEEP_PROMPTS.overview,
   };
+}
 
-  // Auto-generate 命格总览 on mount
-  useEffect(() => {
-    if (autoLoaded.current) return;
-    autoLoaded.current = true;
-    sendMessage(TOPIC_PROMPTS.overview, true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+function describePalace(palace: Palace) {
+  const majorStars = palace.stars.filter(star => star.type === 'major');
+  const starDesc = majorStars.length > 0
+    ? majorStars.map(star => `${star.name}${star.siHua ? `化${star.siHua}` : ''}`).join('、')
+    : '空宫（借对宫）';
+  const role = PALACE_ROLES[palace.name] ?? '命盘事项';
+  return { starDesc, role };
+}
 
-  // Inject star analysis when a star is selected
-  useEffect(() => {
-    if (!selectedStar) return;
-    const key = `${selectedStar.star.name}-${selectedStar.palace.branch}`;
-    if (key === lastStarKey.current) return;
-    lastStarKey.current = key;
-    setActiveTopic('focus');
+function buildStarFocus(selectedStar: SelectedStar): FocusState {
+  const label = `${selectedStar.star.name} · ${selectedStar.palace.name}`;
+  const basis = `${selectedStar.star.name}落在${selectedStar.palace.name}，请结合星曜性质、宫位事项、庙旺陷或四化给短版判断。`;
 
-    const prompt = `请重点分析【${selectedStar.star.name}】在【${selectedStar.palace.name}】的含义，按以下结构输出：
+  return {
+    key: `star:${selectedStar.star.name}:${selectedStar.palace.branch}`,
+    label,
+    kind: 'star',
+    briefPrompt: buildFocusBriefPrompt(label, basis),
+    deepPrompt: `请重点分析【${selectedStar.star.name}】在【${selectedStar.palace.name}】的含义，按以下结构输出：
 
 **【星曜定性】**
 ${selectedStar.star.name}的核心性质，以及落在${selectedStar.palace.name}后的整体判断。
@@ -266,27 +248,23 @@ ${selectedStar.star.name}的核心性质，以及落在${selectedStar.palace.nam
 结合该宫三方四正，说明它如何影响命主现实中的选择、机会与风险。
 
 **【实际建议】**
-给出具体、可执行的建议。`;
+给出具体、可执行的建议。`,
+  };
+}
 
-    sendMessage(prompt, true);
-  }, [selectedStar]); // eslint-disable-line react-hooks/exhaustive-deps
+function buildPalaceFocus(palace: Palace): FocusState {
+  const { starDesc, role } = describePalace(palace);
+  const basis = `${palace.name}主管${role}，主星为${starDesc}。`;
 
-  // Inject palace analysis when palace selected
-  useEffect(() => {
-    if (!selectedPalace || selectedPalace.branch === lastPalaceBranch.current) return;
-    lastPalaceBranch.current = selectedPalace.branch;
-    setActiveTopic('focus');
-
-    const majorStars = selectedPalace.stars.filter(s => s.type === 'major');
-    const starDesc = majorStars.length > 0
-      ? majorStars.map(s => `${s.name}${s.siHua ? '化' + s.siHua : ''}`).join('、')
-      : '空宫（借对宫）';
-    const role = PALACE_ROLES[selectedPalace.name] ?? '';
-
-    const prompt = `请重点分析【${selectedPalace.name}】（主管：${role}），该宫主星为${starDesc}，按以下结构输出：
+  return {
+    key: `palace:${palace.branch}`,
+    label: palace.name,
+    kind: 'palace',
+    briefPrompt: buildFocusBriefPrompt(palace.name, basis),
+    deepPrompt: `请重点分析【${palace.name}】（主管：${role}），该宫主星为${starDesc}，按以下结构输出：
 
 **【宫位定性】**
-${selectedPalace.name}在命盘中的意义，以及这种星曜配置的整体判断。
+${palace.name}在命盘中的意义，以及这种星曜配置的整体判断。
 
 **【主星解读】**
 主星在此宫的倪海夏体系解读，引用具体观点。
@@ -295,32 +273,30 @@ ${selectedPalace.name}在命盘中的意义，以及这种星曜配置的整体�
 三方四正宫位对此宫的影响。
 
 **【实际建议】**
-基于此宫的具体建议。`;
+基于此宫的具体建议。`,
+  };
+}
 
-    sendMessage(prompt, true);
-  }, [selectedPalace]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 注入四化飞化分析
-  useEffect(() => {
-    if (!selectedSiHua) return;
-    const key = `${selectedSiHua.starName}-${selectedSiHua.siHua}-${selectedSiHua.view}-${selectedSiHua.year ?? ''}-${selectedSiHua.month ?? ''}`;
-    if (key === lastSiHuaKey.current) return;
-    lastSiHuaKey.current = key;
-
-    // 找出该星所在宫位
-    const palaceOfStar = chart.palaces.find(p =>
-      p.stars.some(s => s.name === selectedSiHua.starName)
-    );
-    const palaceName = palaceOfStar?.name ?? '未知宫位';
-    setActiveTopic('focus');
-    const viewLabel =
-      selectedSiHua.view === 'daxian'
-        ? '大限'
-        : selectedSiHua.view === 'liuyue'
+function buildSiHuaFocus(chart: ZiweiChart, selectedSiHua: SelectedSiHua): FocusState {
+  const palaceOfStar = chart.palaces.find(palace =>
+    palace.stars.some(star => star.name === selectedSiHua.starName)
+  );
+  const palaceName = palaceOfStar?.name ?? '未知宫位';
+  const viewLabel =
+    selectedSiHua.view === 'daxian'
+      ? '大限'
+      : selectedSiHua.view === 'liuyue'
         ? `流月${selectedSiHua.month ?? ''}`
         : `流年${selectedSiHua.year ?? ''}`;
+  const label = `${viewLabel}${selectedSiHua.starName}化${selectedSiHua.siHua}`;
+  const basis = `${label}落在${palaceName}，请说明当前时间视角下的短版影响。`;
 
-    const prompt = `请分析【${viewLabel}${selectedSiHua.starName}化${selectedSiHua.siHua}】的飞化影响，按以下结构输出：
+  return {
+    key: `sihua:${selectedSiHua.starName}:${selectedSiHua.siHua}:${selectedSiHua.view}:${selectedSiHua.year ?? ''}:${selectedSiHua.month ?? ''}`,
+    label,
+    kind: 'sihua',
+    briefPrompt: buildFocusBriefPrompt(label, basis),
+    deepPrompt: `请分析【${label}】的飞化影响，按以下结构输出：
 
 **【化${selectedSiHua.siHua}基本含义】**
 化${selectedSiHua.siHua}在倪海夏体系中的核心含义，以及${selectedSiHua.starName}化${selectedSiHua.siHua}的特殊含义。
@@ -335,232 +311,542 @@ ${selectedSiHua.starName}化${selectedSiHua.siHua}落在【${palaceName}】，�
 在${viewLabel}时间维度下，此化${selectedSiHua.siHua}对命主近期运势的具体影响。
 
 **【实际建议】**
-基于此四化的具体可操作建议。`;
+基于此四化的具体可操作建议。`,
+  };
+}
 
-    sendMessage(prompt, true);
-  }, [selectedSiHua]); // eslint-disable-line react-hooks/exhaustive-deps
+/** Render AI markdown into compact reading blocks for chart insights. */
+function AiContent({ text, streaming }: { text: string; streaming?: boolean }) {
+  const lines = text.split('\n');
 
-  const streamResponse = async (
+  const renderInline = (value: string) => {
+    const parts = value.split(/\*\*(.+?)\*\*/);
+    return parts.map((part, index) =>
+      index % 2 === 0
+        ? part
+        : (
+          <strong key={index} className="font-semibold" style={{ color: 'var(--t-text)' }}>
+            {part}
+          </strong>
+        )
+    );
+  };
+
+  return (
+    <div className="space-y-2.5">
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+        const sectionMatch = trimmed.match(/^(?:\*\*)?【(.+?)】(?:\*\*)?$/);
+        const numberedMatch = trimmed.match(/^(\d+)[.、]\s*(.+)$/);
+        const bulletMatch = trimmed.match(/^[-•]\s*(.+)$/);
+
+        if (sectionMatch) {
+          return (
+            <div key={i} className="flex items-center gap-2 pt-3 first:pt-0">
+              <span
+                className="h-3.5 w-0.5 rounded-full"
+                style={{ background: 'var(--t-gold)', opacity: 0.82 }}
+              />
+              <span className="text-[13px] font-semibold tracking-wide" style={{ color: 'var(--t-gold)' }}>
+                【{sectionMatch[1]}】
+              </span>
+            </div>
+          );
+        }
+
+        if (!trimmed) return <div key={i} className="h-0.5" />;
+
+        if (numberedMatch) {
+          return (
+            <div key={i} className="grid grid-cols-[22px_1fr] gap-2.5 text-[14px] leading-7">
+              <span
+                className="mt-0.5 flex h-[22px] w-[22px] items-center justify-center rounded-full text-[11px] font-semibold"
+                style={{
+                  background: 'rgba(212,168,67,0.10)',
+                  border: '1px solid rgba(212,168,67,0.22)',
+                  color: 'var(--t-gold)',
+                }}
+              >
+                {numberedMatch[1]}
+              </span>
+              <span style={{ color: 'var(--t-text2)' }}>
+                {renderInline(numberedMatch[2])}
+              </span>
+            </div>
+          );
+        }
+
+        if (bulletMatch) {
+          return (
+            <div key={i} className="grid grid-cols-[10px_1fr] gap-2.5 text-[14px] leading-7">
+              <span className="mt-2 h-1.5 w-1.5 rounded-full" style={{ background: 'var(--t-gold)', opacity: 0.62 }} />
+              <span style={{ color: 'var(--t-text2)' }}>
+                {renderInline(bulletMatch[1])}
+              </span>
+            </div>
+          );
+        }
+
+        return (
+          <div key={i} className="text-[14px] leading-7" style={{ color: 'var(--t-text2)' }}>
+            {renderInline(trimmed)}
+          </div>
+        );
+      })}
+      {streaming && (
+        <span
+          className="inline-block w-1.5 h-3 ml-0.5 animate-pulse rounded-sm align-middle"
+          style={{ background: 'var(--t-gold)', opacity: 0.6 }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PanelSection({
+  title,
+  eyebrow,
+  children,
+}: {
+  title: string;
+  eyebrow?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="rounded-xl px-4 py-3.5"
+      style={{
+        background: 'color-mix(in srgb, var(--t-card) 76%, transparent)',
+        border: '1px solid var(--t-border)',
+      }}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          {eyebrow && (
+            <div className="text-[10px] tracking-widest" style={{ color: 'var(--t-faint)' }}>
+              {eyebrow}
+            </div>
+          )}
+          <h3 className="truncate text-[13px] font-semibold" style={{ color: 'var(--t-text)' }}>
+            {title}
+          </h3>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export default function InsightPanel({ chart, selectedStar, selectedPalace, selectedSiHua }: InsightPanelProps) {
+  const [summary, setSummary] = useState('');
+  const [activeTopic, setActiveTopic] = useState<string>('overview');
+  const [focus, setFocus] = useState<FocusState>(() => buildTopicFocus('overview'));
+  const [focusInsight, setFocusInsight] = useState('');
+  const [expandedInsight, setExpandedInsight] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [loadingTarget, setLoadingTarget] = useState<LoadingTarget>(null);
+  const [error, setError] = useState<{ target: Exclude<LoadingTarget, null>; message: string } | null>(null);
+  const [expandedInsightKey, setExpandedInsightKey] = useState('');
+
+  const abortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
+  const focusRef = useRef<FocusState>(focus);
+  const summaryRef = useRef('');
+  const focusInsightRef = useRef('');
+  const chatMessagesRef = useRef<ChatMessage[]>([]);
+  const lastStarKey = useRef<string | undefined>(undefined);
+  const lastPalaceBranch = useRef<number | undefined>(undefined);
+  const lastSiHuaKey = useRef<string | undefined>(undefined);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { focusRef.current = focus; }, [focus]);
+  useEffect(() => { summaryRef.current = summary; }, [summary]);
+  useEffect(() => { focusInsightRef.current = focusInsight; }, [focusInsight]);
+  useEffect(() => { chatMessagesRef.current = chatMessages; }, [chatMessages]);
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [chatMessages, summary, focusInsight, expandedInsight]);
+
+  const streamInsight = async (
+    target: Exclude<LoadingTarget, null>,
     apiMessages: { role: 'user' | 'assistant'; content: string }[],
-    assistantId: string,
-    requestId: number,
-    signal: AbortSignal,
+    onDelta: (text: string) => void,
+    onDone?: (text: string) => void,
   ) => {
+    abortRef.current?.abort();
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const abortController = new AbortController();
+    abortRef.current = abortController;
+    setLoadingTarget(target);
+    setError(null);
+
+    let assistantText = '';
     try {
       const res = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chart, messages: apiMessages }),
-        signal,
+        signal: abortController.signal,
       });
       if (!res.ok) throw new Error('请求失败');
       if (!res.body) throw new Error('无响应流');
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let assistantText = '';
+      let pending = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (signal.aborted || requestId !== requestIdRef.current) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
+        if (abortController.signal.aborted || requestId !== requestIdRef.current) break;
+        pending += decoder.decode(value, { stream: true });
+        const lines = pending.split(/\r?\n/);
+        pending = lines.pop() ?? '';
+
+        for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6);
           if (data === '[DONE]') break;
           try {
             const delta = JSON.parse(data).delta?.text ?? '';
             assistantText += delta;
-            setMessages(prev => {
-              if (signal.aborted || requestId !== requestIdRef.current) return prev;
-              return prev.map(message =>
-                message.id === assistantId
-                  ? { ...message, content: assistantText }
-                  : message
-              );
-            });
-          } catch { /* skip */ }
+            onDelta(assistantText);
+          } catch {
+            // Ignore keep-alive or malformed stream fragments.
+          }
         }
       }
-    } catch (error) {
-      if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
-        setMessages(prev => prev.filter(message => message.id !== assistantId || message.content.trim()));
+      if (pending && !abortController.signal.aborted && requestId === requestIdRef.current) {
+        const data = pending.startsWith('data: ') ? pending.slice(6) : '';
+        if (data && data !== '[DONE]') {
+          try {
+            const delta = JSON.parse(data).delta?.text ?? '';
+            assistantText += delta;
+            onDelta(assistantText);
+          } catch {
+            // Ignore incomplete trailing data.
+          }
+        }
+      }
+      if (!abortController.signal.aborted && requestId === requestIdRef.current) {
+        onDone?.(assistantText);
+      }
+    } catch (streamError) {
+      if (abortController.signal.aborted || (streamError instanceof DOMException && streamError.name === 'AbortError')) {
         return;
       }
-      setMessages(prev => prev.map(message =>
-        message.id === assistantId
-          ? { ...message, content: '解读失败，请稍后重试。' }
-          : message
-      ));
+      setError({ target, message: '解读失败，请稍后重试。' });
     } finally {
       if (requestId === requestIdRef.current) {
-        setLoading(false);
-        loadingRef.current = false;
+        setLoadingTarget(null);
         abortRef.current = null;
       }
     }
   };
 
-  const sendMessage = (text: string, hidden = false) => {
-    if (!text.trim()) return;
-    if (loadingRef.current) {
-      if (!hidden) return;
-      abortRef.current?.abort();
-    }
-
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    const abortController = new AbortController();
-    abortRef.current = abortController;
-    loadingRef.current = true;
-    setLoading(true);
-
-    const prompt = applyDetailMode(text);
-    const userMsg: Message = { id: nextMessageId('user'), role: 'user', content: text, apiContent: prompt, hidden };
-    const assistantMsg: Message = { id: nextMessageId('assistant'), role: 'assistant', content: '' };
-    // Capture current messages synchronously via ref (avoids stale closure)
-    const apiMessages = [...messagesRef.current, userMsg]
-      .filter(m => m.content.trim())
-      .map(m => ({
-      role: m.role,
-      content: m.apiContent ?? m.content,
-    }));
-
-    setMessages(prev => [...prev, userMsg, assistantMsg]);
-    setInput('');
-    streamResponse(apiMessages, assistantMsg.id, requestId, abortController.signal);
+  const requestSummary = () => {
+    setSummary('');
+    streamInsight(
+      'summary',
+      [{ role: 'user', content: buildSummaryPrompt() }],
+      setSummary,
+    );
   };
 
+  const requestFocusInsight = (nextFocus: FocusState) => {
+    setFocus(nextFocus);
+    setFocusInsight('');
+    setExpandedInsight('');
+    setExpandedInsightKey('');
+    streamInsight(
+      'focus',
+      [
+        { role: 'user', content: buildSummaryPrompt() },
+        { role: 'assistant', content: summaryRef.current || '摘要生成中。' },
+        { role: 'user', content: nextFocus.briefPrompt },
+      ],
+      setFocusInsight,
+    );
+  };
+
+  useEffect(() => {
+    abortRef.current?.abort();
+    setSummary('');
+    setActiveTopic('overview');
+    setFocus(buildTopicFocus('overview'));
+    setFocusInsight('');
+    setExpandedInsight('');
+    setExpandedInsightKey('');
+    setChatMessages([]);
+    setInput('');
+    setError(null);
+    lastStarKey.current = undefined;
+    lastPalaceBranch.current = undefined;
+    lastSiHuaKey.current = undefined;
+    requestSummary();
+  }, [chart]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedStar) return;
+    const nextFocus = buildStarFocus(selectedStar);
+    if (nextFocus.key === lastStarKey.current) return;
+    lastStarKey.current = nextFocus.key;
+    setActiveTopic('focus');
+    requestFocusInsight(nextFocus);
+  }, [selectedStar]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedPalace) return;
+    const nextFocus = buildPalaceFocus(selectedPalace);
+    if (selectedPalace.branch === lastPalaceBranch.current) return;
+    lastPalaceBranch.current = selectedPalace.branch;
+    setActiveTopic('focus');
+    requestFocusInsight(nextFocus);
+  }, [selectedPalace]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedSiHua) return;
+    const nextFocus = buildSiHuaFocus(chart, selectedSiHua);
+    if (nextFocus.key === lastSiHuaKey.current) return;
+    lastSiHuaKey.current = nextFocus.key;
+    setActiveTopic('focus');
+    requestFocusInsight(nextFocus);
+  }, [selectedSiHua]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleTopicClick = (topicKey: string) => {
-    if (loadingRef.current) return;
+    if (loadingTarget) return;
     setActiveTopic(topicKey);
-    sendMessage(TOPIC_PROMPTS[topicKey], true);
+    requestFocusInsight(buildTopicFocus(topicKey));
+  };
+
+  const handleExpand = () => {
+    const currentFocus = focusRef.current;
+    if (loadingTarget) return;
+    if (expandedInsight && expandedInsightKey === currentFocus.key) return;
+
+    setExpandedInsight('');
+    streamInsight(
+      'expanded',
+      [
+        { role: 'user', content: buildSummaryPrompt() },
+        { role: 'assistant', content: summaryRef.current || '摘要生成中。' },
+        { role: 'user', content: currentFocus.briefPrompt },
+        { role: 'assistant', content: focusInsightRef.current || '当前焦点短解读生成中。' },
+        {
+          role: 'user',
+          content: `${currentFocus.deepPrompt}
+
+请使用深度模式：每个小节展开到 2-3 段，明确写出命盘依据、三方四正联动、可验证的现实表现，以及可以马上执行的建议。`,
+        },
+      ],
+      setExpandedInsight,
+      text => {
+        if (text.trim()) setExpandedInsightKey(currentFocus.key);
+      },
+    );
   };
 
   const handleSend = () => {
-    sendMessage(input);
+    const question = input.trim();
+    if (!question || loadingTarget) return;
+
+    const userMessage: ChatMessage = { id: nextId('user'), role: 'user', content: question };
+    const assistantMessage: ChatMessage = { id: nextId('assistant'), role: 'assistant', content: '' };
+    const contextPrompt = `当前命盘摘要：
+${summaryRef.current || '暂无摘要'}
+
+当前焦点：${focusRef.current.label}
+${focusInsightRef.current || '暂无焦点短解读'}
+
+请结合以上上下文回答用户追问，必要时说明不确定性，避免制造确定性预测。`;
+
+    const apiMessages = [
+      { role: 'user' as const, content: contextPrompt },
+      ...chatMessagesRef.current.map(message => ({ role: message.role, content: message.content })),
+      { role: 'user' as const, content: question },
+    ];
+
+    setChatMessages(prev => [...prev, userMessage, assistantMessage]);
+    setInput('');
+    streamInsight(
+      'chat',
+      apiMessages,
+      text => {
+        setChatMessages(prev => prev.map(message =>
+          message.id === assistantMessage.id ? { ...message, content: text } : message
+        ));
+      },
+    );
   };
 
-  return (
-    <div className="flex flex-col h-full rounded-xl overflow-hidden card-glass">
+  const summaryLoading = loadingTarget === 'summary' && !summary;
+  const focusLoading = loadingTarget === 'focus' && !focusInsight;
+  const expandedLoading = loadingTarget === 'expanded';
+  const chatLoading = loadingTarget === 'chat';
+  const isBusy = loadingTarget !== null;
 
-      {/* ── Topic buttons ── */}
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-xl card-glass">
       <div className="flex-shrink-0 px-2 pt-2.5 pb-2" style={{ borderBottom: '1px solid var(--t-border)' }}>
-        <div className="flex items-center gap-1.5">
-          <div className="grid grid-cols-6 gap-1 flex-1 min-w-0">
-            {TOPICS.map(t => {
-              const isActive = activeTopic === t.key;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => handleTopicClick(t.key)}
-                  disabled={loading}
-                  className="py-1.5 text-[10px] font-medium rounded-lg transition-all duration-150 disabled:opacity-40"
-                  style={{
-                    background: isActive ? 'rgba(212,168,67,0.12)' : 'transparent',
-                    border: `1px solid ${isActive ? 'rgba(212,168,67,0.3)' : 'var(--t-border)'}`,
-                    color: isActive ? 'var(--t-gold)' : 'var(--t-faint)',
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex shrink-0 rounded-lg p-0.5" style={{ border: '1px solid var(--t-border)' }}>
-            {([
-              ['standard', '标准'],
-              ['deep', '深度'],
-            ] as const).map(([mode, label]) => (
+        <div className="grid grid-cols-6 gap-1">
+          {TOPICS.map(topic => {
+            const isActive = activeTopic === topic.key;
+            return (
               <button
-                key={mode}
-                type="button"
-                onClick={() => setDetailMode(mode)}
-                disabled={loading}
-                className="px-2 py-1 text-[10px] rounded-md transition-colors disabled:opacity-40"
+                key={topic.key}
+                onClick={() => handleTopicClick(topic.key)}
+                disabled={isBusy}
+                className="py-1.5 text-[11px] font-medium rounded-lg transition-all duration-150 disabled:opacity-40"
                 style={{
-                  background: detailMode === mode ? 'rgba(212,168,67,0.12)' : 'transparent',
-                  color: detailMode === mode ? 'var(--t-gold)' : 'var(--t-faint)',
+                  background: isActive ? 'rgba(212,168,67,0.12)' : 'transparent',
+                  border: `1px solid ${isActive ? 'rgba(212,168,67,0.3)' : 'var(--t-border)'}`,
+                  color: isActive ? 'var(--t-gold)' : 'var(--t-faint)',
                 }}
               >
-                {label}
+                {topic.label}
               </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* ── Messages ── */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <PanelSection title="核心摘要" eyebrow="SUMMARY">
+          {summaryLoading ? (
+            <p className="text-[13px] leading-6 animate-pulse" style={{ color: 'var(--t-faint)' }}>
+              正在生成短摘要…
+            </p>
+          ) : summary ? (
+            <AiContent text={summary} streaming={loadingTarget === 'summary'} />
+          ) : (
+            <p className="text-[13px] leading-6" style={{ color: 'var(--t-faint)' }}>
+              暂无摘要。
+            </p>
+          )}
+          {error?.target === 'summary' && (
+            <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+          )}
+        </PanelSection>
 
-        {/* Loading state before first message */}
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="text-4xl mb-3" style={{ color: 'var(--t-gold)', opacity: 0.1 }}>✦</div>
-            <p className="text-[10px] animate-pulse" style={{ color: 'var(--t-faint)' }}>命格解读生成中…</p>
+        <PanelSection title={focus.label} eyebrow="当前焦点">
+          {focusLoading ? (
+            <p className="text-[13px] leading-6 animate-pulse" style={{ color: 'var(--t-faint)' }}>
+              正在更新焦点解读…
+            </p>
+          ) : focusInsight ? (
+            <AiContent text={focusInsight} streaming={loadingTarget === 'focus'} />
+          ) : (
+            <p className="text-[13px] leading-6" style={{ color: 'var(--t-faint)' }}>
+              点击上方主题、宫位、星曜或四化查看当前焦点。
+            </p>
+          )}
+
+          {error?.target === 'focus' && (
+            <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+          )}
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleExpand}
+              disabled={isBusy || !focusInsight || (!!expandedInsight && expandedInsightKey === focus.key)}
+              className="rounded-lg px-3 py-2 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-35"
+              style={{
+                background: 'rgba(212,168,67,0.12)',
+                border: '1px solid rgba(212,168,67,0.25)',
+                color: 'var(--t-gold)',
+              }}
+            >
+              {expandedInsight && expandedInsightKey === focus.key ? '深度解读已展开' : '展开深度解读'}
+            </button>
           </div>
-        )}
 
-        <AnimatePresence initial={false}>
-          {messages.map((msg, i) => {
-            if (msg.role === 'user' && msg.hidden) return null;
+          {(expandedInsight || expandedLoading || error?.target === 'expanded') && (
+            <div
+              className="mt-3 rounded-xl px-3 py-3"
+              style={{
+                background: 'rgba(212,168,67,0.055)',
+                border: '1px solid rgba(212,168,67,0.16)',
+              }}
+            >
+              {expandedInsight ? (
+                <AiContent text={expandedInsight} streaming={expandedLoading} />
+              ) : (
+                <p className="text-[13px] leading-6 animate-pulse" style={{ color: 'var(--t-faint)' }}>
+                  正在展开深度解读…
+                </p>
+              )}
+              {error?.target === 'expanded' && (
+                <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+              )}
+            </div>
+          )}
+        </PanelSection>
 
-            if (msg.role === 'user') {
-              return (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex justify-end"
-                >
-                  <div
-                    className="max-w-[85%] rounded-xl px-3 py-2 text-[11px]"
-                    style={{
-                      background: 'rgba(212,168,67,0.08)',
-                      border: '1px solid rgba(212,168,67,0.18)',
-                      color: 'var(--t-gold)',
-                    }}
-                  >
-                    {msg.content}
-                  </div>
-                </motion.div>
-              );
-            }
+        <PanelSection title="自由追问" eyebrow="CHAT">
+          {chatMessages.length === 0 ? (
+            <p className="text-[13px] leading-6" style={{ color: 'var(--t-faint)' }}>
+              输入你的具体问题，AI 会结合当前摘要与焦点回答。
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <AnimatePresence initial={false}>
+                {chatMessages.map((message, index) => {
+                  const isUser = message.role === 'user';
+                  const isStreaming = chatLoading && index === chatMessages.length - 1;
 
-            // Assistant message
-            const isLastMsg = i === messages.length - 1;
-            return (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <div
-                  className="text-[9px] tracking-widest mb-2 flex items-center gap-1.5"
-                  style={{ color: 'var(--t-faint)' }}
-                >
-                  <span style={{ color: 'var(--t-gold)', opacity: 0.4 }}>✦</span>
-                  命理解读
-                </div>
-                <AiContent text={msg.content} streaming={loading && isLastMsg} />
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+                  return (
+                    <motion.div
+                      key={message.id}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={isUser ? 'flex justify-end' : undefined}
+                    >
+                      {isUser ? (
+                        <div
+                          className="max-w-[85%] rounded-xl px-3 py-2 text-[13px] leading-6"
+                          style={{
+                            background: 'rgba(212,168,67,0.08)',
+                            border: '1px solid rgba(212,168,67,0.18)',
+                            color: 'var(--t-gold)',
+                          }}
+                        >
+                          {message.content}
+                        </div>
+                      ) : (
+                        <AiContent text={message.content} streaming={isStreaming} />
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )}
+          {error?.target === 'chat' && (
+            <p className="mt-2 text-[12px]" style={{ color: 'var(--ji)' }}>{error.message}</p>
+          )}
+        </PanelSection>
       </div>
 
-      {/* ── Input ── */}
       <div className="flex-shrink-0 px-3 pb-3 pt-2" style={{ borderTop: '1px solid var(--t-border)' }}>
         <div className="flex gap-2">
           <input
             type="text"
             value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            onChange={event => setInput(event.target.value)}
+            onKeyDown={event => event.key === 'Enter' && !event.shiftKey && handleSend()}
             placeholder="继续追问，如：今年适合换工作吗？"
-            disabled={loading}
-            className="flex-1 rounded-lg px-3 py-2 text-[11px] focus:outline-none transition-colors"
+            disabled={isBusy}
+            className="flex-1 rounded-lg px-3 py-2.5 text-[13px] focus:outline-none transition-colors"
             style={{
               background: 'var(--t-card)',
               border: '1px solid var(--t-border)',
@@ -569,19 +855,18 @@ ${selectedSiHua.starName}化${selectedSiHua.siHua}落在【${palaceName}】，�
           />
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim()}
-            className="px-3 py-2 rounded-lg text-[11px] font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            disabled={isBusy || !input.trim()}
+            className="px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
               background: 'rgba(212,168,67,0.15)',
               border: '1px solid rgba(212,168,67,0.25)',
               color: 'var(--t-gold)',
             }}
           >
-            {loading ? '…' : '追问'}
+            {chatLoading ? '…' : '追问'}
           </button>
         </div>
       </div>
-
     </div>
   );
 }

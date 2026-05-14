@@ -16,7 +16,7 @@ function AiContent({ text, streaming }: { text: string; streaming?: boolean }) {
         if (sectionMatch) {
           return (
             <div key={i} style={{ paddingTop: i === 0 ? 0 : '14px', paddingBottom: '4px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ac)', letterSpacing: '0.04em' }}>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ac)', letterSpacing: '0.04em' }}>
                 【{sectionMatch[1]}】
               </span>
             </div>
@@ -25,7 +25,7 @@ function AiContent({ text, streaming }: { text: string; streaming?: boolean }) {
         if (line.trim() === '') return <div key={i} style={{ height: '4px' }} />;
         const parts = line.split(/\*\*(.+?)\*\*/);
         return (
-          <div key={i} style={{ fontSize: '13px', lineHeight: 1.75, color: 'var(--tx-2)' }}>
+          <div key={i} style={{ fontSize: '15px', lineHeight: 1.8, color: 'var(--tx-2)' }}>
             {parts.map((part, j) =>
               j % 2 === 0
                 ? part
