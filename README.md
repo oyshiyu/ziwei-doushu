@@ -98,10 +98,12 @@ Expand-Archive combined.zip
 以下属于平台运营层，不在开源范围内：
 
 - **AI 解读 prompt**：基于倪海夏体系调教的命盘解读提示词
-- **后端 API**：`/api/interpret`、`/api/heming`、`/api/generate` 等路由实现
+- **私有后端 API**：`/api/interpret`、`/api/heming` 等 AI 解读、合盘深度分析与运营服务接口
 - **用户系统**：登录、短信验证、会员、支付
 - **服务端安全**：签名校验、防刷、水印
 - **部署配置**：Vercel/Nginx/Docker/数据库
+
+开源版保留本地排盘 API：`/api/generate`。它只负责把出生信息转换为命盘结构，便于前端排盘工作台独立运行。
 
 如果你需要 AI 解读能力，可以参考 `lib/ziwei/patterns.ts` 和 `heming-knowledge.ts` 中的知识库，结合任意 LLM 自行构建 prompt。
 
@@ -117,15 +119,15 @@ cd ziwei-doushu
 # 安装依赖
 npm install
 
-# 配置环境变量
+# 配置环境变量（仅 AI 解读等私有能力需要）
 cp .env.example .env.local
-# 编辑 .env.local，填入你的 AI API Key
+# 如果只使用本地排盘工作台，可以跳过 AI API Key
 
 # 启动开发服务器
 npm run dev
 ```
 
-> 注意：开源版不含后端 API 路由，AI 解读功能需要你自行实现 `/api/interpret` 等接口。排盘算法和前端界面可独立运行。
+> 注意：开源版包含 `/api/generate` 本地排盘接口，AI 解读功能需要你自行实现 `/api/interpret` 等接口。排盘算法、排盘接口和前端界面可独立运行。
 
 ---
 

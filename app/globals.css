@@ -56,6 +56,16 @@
   --r-lg:  16px;
   --r-xl:  24px;
   --r-pill:999px;
+
+  /* 命盘格：柔和纸色 */
+  --chart-grid-line: #ded4c2;
+  --chart-grid-outer: #d2c6b4;
+  --chart-grid-shadow: 0 14px 36px rgba(70,48,20,0.08);
+  --chart-palace-bg: #fffdf8;
+  --chart-cell-border: rgba(170,145,105,0.24);
+  --chart-center-bg: #fbf7ef;
+  --chart-center-border: #cdbda3;
+  --chart-center-shadow: inset 0 0 0 1px rgba(255,255,255,0.62);
 }
 
 /* ─── 暗色模式 Token 覆盖 ──────────────────────────────── */
@@ -88,6 +98,15 @@
 
   --bg-card: rgba(255,255,255,0.04);
   --bg-page: #020810;
+
+  --chart-grid-line: rgba(77,95,125,0.34);
+  --chart-grid-outer: rgba(94,112,144,0.34);
+  --chart-grid-shadow: 0 16px 42px rgba(0,0,0,0.32);
+  --chart-palace-bg: #0d1625;
+  --chart-cell-border: rgba(120,145,180,0.18);
+  --chart-center-bg: #101b2b;
+  --chart-center-border: rgba(130,150,185,0.34);
+  --chart-center-shadow: inset 0 0 0 1px rgba(255,255,255,0.035);
 }
 
 /* ─── 全局基础 ───────────────────────────────────────────── */
@@ -326,17 +345,313 @@ body {
   flex: 1;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(420px, 520px) 1fr;
+  grid-template-columns: minmax(420px, var(--chart-left-width, 520px)) 8px minmax(360px, 1fr);
+  min-height: 0;
 }
 .chart-workspace-left {
   border-right: 1px solid var(--bdr);
-  overflow-y: auto;
+  overflow: auto;
   padding: 20px 20px 48px;
   background: var(--bg-0);
+  min-width: 0;
 }
 .chart-workspace-right {
   overflow-y: auto;
   background: var(--bg-1);
+  min-width: 0;
+}
+.chart-workspace-resizer {
+  position: relative;
+  background: var(--bg-1);
+  cursor: col-resize;
+  min-width: 8px;
+  touch-action: none;
+}
+.chart-workspace-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--bdr-med);
+}
+.chart-workspace-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 42px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: var(--bdr-heavy);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.chart-workspace-resizer:hover::after {
+  background: var(--ac);
+  opacity: 0.9;
+}
+
+.chart-mode-row {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  width: max-content;
+  margin: 0 auto 14px;
+  padding: 3px;
+  border: 1px solid var(--bdr);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--bg-0) 94%, transparent);
+  box-shadow: var(--sh-xs);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.chart-mode-button {
+  min-width: 64px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx-3);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 7px 12px;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.chart-mode-button[data-active="true"] {
+  background: var(--bg-card);
+  color: var(--tx-0);
+  box-shadow: var(--sh-xs);
+}
+.chart-board-shell {
+  margin: 0 auto;
+}
+.chart-board-shell--compact {
+  max-width: 640px;
+}
+.chart-board-shell--full {
+  min-width: 560px;
+}
+.chart-board-shell--compact .palace-cell {
+  min-height: 82px !important;
+}
+.chart-board-shell--compact .chart-center-inscription {
+  width: min(82%, 260px);
+  gap: 6px;
+}
+.chart-board-shell--compact .chart-center-title {
+  font-size: 9px;
+  letter-spacing: 0.28em;
+}
+.chart-board-shell--compact .chart-center-meta {
+  font-size: 9px;
+  line-height: 1.35;
+  padding-bottom: 5px;
+}
+.chart-board-shell--compact .chart-center-life-item {
+  padding: 7px 6px;
+}
+.chart-board-shell--compact .chart-center-life-item span,
+.chart-board-shell--compact .chart-center-daxian span,
+.chart-board-shell--compact .chart-center-pillars-title,
+.chart-board-shell--compact .chart-center-pillars-grid > span {
+  font-size: 8px;
+}
+.chart-board-shell--compact .chart-center-life-item strong {
+  font-size: 21px;
+}
+.chart-board-shell--compact .chart-center-pillars {
+  gap: 5px;
+  padding: 6px 0;
+}
+.chart-board-shell--compact .chart-center-pillars-grid > span,
+.chart-board-shell--compact .chart-center-pillars-grid > strong {
+  min-height: 20px;
+}
+.chart-board-shell--compact .chart-center-pillars-grid > strong {
+  font-size: 14px;
+}
+.chart-board-shell--compact .chart-center-daxian {
+  gap: 6px;
+  padding: 7px 8px;
+}
+.chart-board-shell--compact .chart-center-daxian strong {
+  font-size: 13px;
+}
+.chart-palace-grid {
+  padding: 1px;
+  aspect-ratio: 1 / 1;
+  min-height: 520px;
+}
+.chart-palace-grid > div {
+  min-width: 0;
+  min-height: 0;
+}
+.palace-cell {
+  border: 1px solid var(--chart-cell-border);
+  overflow: hidden;
+}
+.palace-center-tile {
+  border: 1px solid var(--chart-center-border);
+  box-shadow: var(--chart-center-shadow);
+  overflow: hidden;
+}
+.chart-center-inscription {
+  width: min(84%, 280px);
+  display: grid;
+  gap: 10px;
+}
+.chart-center-title {
+  text-align: center;
+  color: var(--t-gold);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+}
+.chart-center-meta {
+  border-bottom: 1px solid color-mix(in srgb, var(--chart-center-border) 72%, transparent);
+  color: var(--t-faint);
+  font-size: 10px;
+  line-height: 1.45;
+  padding-bottom: 7px;
+  text-align: center;
+}
+.chart-center-meta-line,
+.chart-center-ju {
+  display: block;
+}
+.chart-center-meta-line span {
+  display: inline-block;
+  white-space: nowrap;
+}
+.chart-center-meta-line span + span::before {
+  content: "·";
+  color: color-mix(in srgb, var(--t-faint) 48%, transparent);
+  margin: 0 4px;
+}
+.chart-center-ju {
+  color: var(--t-gold);
+  opacity: 0.82;
+}
+.chart-center-life-axis {
+  background: color-mix(in srgb, var(--chart-center-border) 54%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chart-center-border) 68%, transparent);
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.chart-center-life-item {
+  background: color-mix(in srgb, var(--chart-center-bg) 82%, transparent);
+  padding: 9px 8px;
+  text-align: center;
+}
+.chart-center-life-item span {
+  color: var(--t-faint);
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.chart-center-life-item strong {
+  color: var(--t-gold);
+  display: block;
+  font-size: 24px;
+  line-height: 1;
+}
+.chart-center-life-item:last-child strong {
+  color: rgb(14 165 233 / 0.78);
+}
+.chart-center-pillars {
+  border-bottom: 1px solid color-mix(in srgb, var(--chart-center-border) 62%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--chart-center-border) 62%, transparent);
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
+}
+.chart-center-pillars-title {
+  align-items: center;
+  color: var(--t-faint);
+  display: flex;
+  font-size: 9px;
+  font-weight: 700;
+  gap: 8px;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+.chart-center-pillars-title::before,
+.chart-center-pillars-title::after {
+  background: color-mix(in srgb, var(--chart-center-border) 58%, transparent);
+  content: "";
+  flex: 1;
+  height: 1px;
+}
+.chart-center-pillars-grid {
+  background: color-mix(in srgb, var(--chart-center-bg) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chart-center-border) 66%, transparent);
+  display: grid;
+  grid-template-columns: 22px repeat(4, minmax(0, 1fr));
+}
+.chart-center-pillars-grid > span,
+.chart-center-pillars-grid > strong {
+  align-items: center;
+  border-left: 1px solid color-mix(in srgb, var(--chart-center-border) 52%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--chart-center-border) 42%, transparent);
+  display: flex;
+  justify-content: center;
+  line-height: 1;
+  min-height: 23px;
+}
+.chart-center-pillars-grid > span:nth-child(-n+5),
+.chart-center-pillars-grid > strong:nth-child(-n+5) {
+  border-top: 0;
+}
+.chart-center-pillars-grid > span:nth-child(5n+1),
+.chart-center-pillars-grid > strong:nth-child(5n+1) {
+  border-left: 0;
+}
+.chart-center-pillars-grid > span {
+  color: var(--t-faint);
+  font-size: 9px;
+  font-weight: 700;
+}
+.chart-center-pillars-grid > strong {
+  color: var(--t-text);
+  font-size: 16px;
+  font-weight: 700;
+}
+.chart-center-pillars-grid > strong.stem {
+  color: var(--t-gold);
+}
+.chart-center-daxian {
+  align-items: center;
+  background: linear-gradient(90deg, rgba(147, 51, 234, 0.1), rgba(147, 51, 234, 0.03));
+  border: 1px solid rgba(147, 51, 234, 0.28);
+  color: rgb(192 132 252);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 8px 10px;
+}
+.chart-center-daxian span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+.chart-center-daxian strong {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+  min-width: 0;
+  text-align: right;
 }
 
 .chart-topbar {
@@ -361,6 +676,41 @@ body {
   min-width: 0;
 }
 .chart-topbar-back-sep { width: 1px; height: 20px; background: var(--bdr-med); }
+.chart-topbar-button,
+.chart-topbar-step {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--tx-3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.chart-topbar-button {
+  padding: 5px 12px;
+  font-size: 11px;
+  line-height: 1;
+}
+.chart-topbar-step {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.chart-topbar-button:hover,
+.chart-topbar-step:hover,
+.chart-topbar-button[data-active="true"] {
+  color: var(--ac);
+  border-color: var(--ac-bdr);
+  background: rgba(184,146,42,0.08);
+}
+.chart-topbar-theme {
+  flex-shrink: 0;
+}
+.chart-topbar-theme .theme-toggle {
+  padding: 5px 10px;
+}
 
 /* 手机版 */
 @media (max-width: 767px) {
@@ -376,7 +726,7 @@ body {
   .chart-workspace-left {
     border-right: none;
     border-bottom: 1px solid var(--bdr);
-    overflow: visible;
+    overflow: auto;
     padding: 12px 12px 20px;
     flex: none;
   }
@@ -384,6 +734,9 @@ body {
     overflow: visible;
     flex: none;
     padding-bottom: 24px;
+  }
+  .chart-workspace-resizer {
+    display: none;
   }
 
   .chart-topbar {
@@ -400,11 +753,21 @@ body {
   }
   .chart-topbar-tabs::-webkit-scrollbar { display: none; }
   .chart-topbar-export { display: none !important; }
+  .chart-topbar-theme .theme-toggle {
+    gap: 0;
+    padding: 5px 7px;
+  }
+  .chart-topbar-theme .theme-toggle span {
+    display: none;
+  }
 
   .chart-topbar button,
   .chart-topbar span { white-space: nowrap; }
 
   /* 命盘宫格：紧凑 */
+  .chart-palace-grid {
+    min-height: 0;
+  }
   .palace-cell {
     min-height: 74px !important;
     padding: 6px 5px 5px !important;
@@ -414,6 +777,47 @@ body {
     padding: 10px 6px !important;
     gap: 6px !important;
   }
+  .chart-center-inscription {
+    width: 88%;
+    gap: 7px;
+  }
+  .chart-center-title {
+    font-size: 9px;
+  }
+  .chart-center-meta {
+    font-size: 9px;
+    padding-bottom: 5px;
+  }
+  .chart-center-life-item {
+    padding: 7px 6px;
+  }
+  .chart-center-life-item span,
+  .chart-center-daxian span,
+  .chart-center-pillars-title,
+  .chart-center-pillars-grid > span {
+    font-size: 8px;
+  }
+  .chart-center-life-item strong {
+    font-size: 20px;
+  }
+  .chart-center-pillars {
+    gap: 5px;
+    padding: 6px 0;
+  }
+  .chart-center-pillars-grid > span,
+  .chart-center-pillars-grid > strong {
+    min-height: 20px;
+  }
+  .chart-center-pillars-grid > strong {
+    font-size: 14px;
+  }
+  .chart-center-daxian {
+    gap: 6px;
+    padding: 7px 8px;
+  }
+  .chart-center-daxian strong {
+    font-size: 13px;
+  }
 }
 
 /* 极小屏（<360）进一步收紧 */
@@ -421,6 +825,11 @@ body {
   .palace-cell { min-height: 68px !important; padding: 5px 4px !important; }
   .chart-workspace-left { padding: 10px 8px 16px; }
   .chart-topbar { padding: 0 8px; gap: 6px; }
+  .chart-center-inscription { width: 92%; gap: 6px; }
+  .chart-center-meta { font-size: 8px; }
+  .chart-center-life-item strong { font-size: 18px; }
+  .chart-center-pillars-grid > strong { font-size: 13px; }
+  .chart-center-daxian strong { font-size: 12px; }
 }
 
 /* ─── 打印样式 ───────────────────────────────────────────── */

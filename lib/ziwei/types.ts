@@ -10,6 +10,101 @@ export interface BirthInfo {
   longitude?: number;  // 出生地经度（用于真太阳时校正）
 }
 
+export interface IztroStar {
+  name: string;
+  type: string;
+  scope: string;
+  brightness?: string;
+  mutagen?: string;
+}
+
+export interface IztroDecadal {
+  range: [number, number];
+  heavenlyStem: string;
+  earthlyBranch: string;
+}
+
+export interface IztroPalace {
+  index: number;
+  name: string;
+  isBodyPalace: boolean;
+  isOriginalPalace: boolean;
+  heavenlyStem: string;
+  earthlyBranch: string;
+  majorStars: IztroStar[];
+  minorStars: IztroStar[];
+  adjectiveStars: IztroStar[];
+  changsheng12: string;
+  boshi12: string;
+  jiangqian12: string;
+  suiqian12: string;
+  decadal: IztroDecadal;
+  ages: number[];
+}
+
+export interface IztroAstrolabe {
+  gender: string;
+  solarDate: string;
+  lunarDate: string;
+  chineseDate: string;
+  rawDates: {
+    lunarDate: {
+      lunarYear: number;
+      lunarMonth: number;
+      lunarDay: number;
+      isLeap: boolean;
+    };
+    chineseDate: {
+      yearly: [string, string];
+      monthly: [string, string];
+      daily: [string, string];
+      hourly: [string, string];
+    };
+  };
+  time: string;
+  timeRange: string;
+  sign: string;
+  zodiac: string;
+  earthlyBranchOfSoulPalace: string;
+  earthlyBranchOfBodyPalace: string;
+  soul: string;
+  body: string;
+  fiveElementsClass: string;
+  palaces: IztroPalace[];
+  copyright: string;
+}
+
+export interface IztroHoroscopeItem {
+  index: number;
+  name: string;
+  heavenlyStem: string;
+  earthlyBranch: string;
+  palaceNames: string[];
+  mutagen: string[];
+  stars?: IztroStar[][];
+}
+
+export interface IztroHoroscope {
+  lunarDate: string;
+  solarDate: string;
+  decadal: IztroHoroscopeItem;
+  age: IztroHoroscopeItem & { nominalAge: number };
+  yearly: IztroHoroscopeItem & {
+    yearlyDecStar: {
+      jiangqian12: string[];
+      suiqian12: string[];
+    };
+  };
+  monthly: IztroHoroscopeItem;
+  daily: IztroHoroscopeItem;
+  hourly: IztroHoroscopeItem;
+}
+
+export interface IztroPayload {
+  astrolabe: IztroAstrolabe;
+  horoscope: IztroHoroscope;
+}
+
 export interface LunarInfo {
   lunarYear: number;
   lunarMonth: number;    // positive = normal, negative = leap month
@@ -87,4 +182,6 @@ export interface ZiweiChart {
   daXians: DaXian[];
   currentAge: number;
   currentDaXianIndex: number;
+  /** iztro 原始排盘数据的完整可序列化快照，供高级排盘/对齐校验使用 */
+  iztro: IztroPayload;
 }

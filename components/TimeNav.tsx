@@ -3,14 +3,16 @@ import { motion } from 'framer-motion';
 import { STEMS, SI_HUA_TABLE } from '@/lib/ziwei/constants';
 import type { ZiweiChart } from '@/lib/ziwei/types';
 
-export type TimeView = 'mingpan' | 'daxian' | 'liunian';
+export type TimeView = 'mingpan' | 'daxian' | 'liunian' | 'liuyue';
 
 interface TimeNavProps {
   chart: ZiweiChart;
   view: TimeView;
   liunianYear: number;
+  liuyueMonth?: number;
   onViewChange: (view: TimeView) => void;
   onYearChange: (year: number) => void;
+  onMonthChange?: (month: number) => void;
 }
 
 /** 由年份计算天干索引 (0-9) */
@@ -30,6 +32,16 @@ export function buildSiHuaOverlay(stemIndex: number): Record<string, string> {
   };
 }
 
+function buildMutagenOverlay(mutagen?: string[]): Record<string, string> {
+  if (!mutagen || mutagen.length < 4) return {};
+  return {
+    [mutagen[0]]: '禄',
+    [mutagen[1]]: '权',
+    [mutagen[2]]: '科',
+    [mutagen[3]]: '忌',
+  };
+}
+
 const SIHUA_COLORS: Record<string, string> = {
   '禄': '#4ade80',
   '权': '#60a5fa',
@@ -41,8 +53,10 @@ export default function TimeNav({
   chart,
   view,
   liunianYear,
+  liuyueMonth = new Date().getMonth() + 1,
   onViewChange,
   onYearChange,
+  onMonthChange,
 }: TimeNavProps) {
   const currentDx = chart.daXians[chart.currentDaXianIndex];
 
@@ -65,6 +79,13 @@ export default function TimeNav({
       return {
         stemName: STEMS[stemIndex],
         overlay: buildSiHuaOverlay(stemIndex),
+      };
+    }
+
+    if (view === 'liuyue') {
+      return {
+        stemName: chart.iztro.horoscope.monthly.heavenlyStem,
+        overlay: buildMutagenOverlay(chart.iztro.horoscope.monthly.mutagen),
       };
     }
 
@@ -140,6 +161,57 @@ export default function TimeNav({
             </button>
           </div>
         </div>
+
+        <div
+          className="relative flex-1 flex items-center justify-center rounded-lg py-1.5 gap-1 transition-all duration-200"
+          style={{
+            background: view === 'liuyue'
+              ? 'rgba(212,168,67,0.12)'
+              : 'transparent',
+            border: view === 'liuyue'
+              ? '1px solid rgba(212,168,67,0.25)'
+              : '1px solid transparent',
+          }}
+        >
+          <button
+            onClick={() => onViewChange('liuyue')}
+            className="text-[10px] font-medium flex-1 text-center"
+            style={{ color: view === 'liuyue' ? 'var(--t-gold)' : 'var(--t-faint)' }}
+          >
+            流月
+          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                onMonthChange?.(Math.max(1, liuyueMonth - 1));
+                if (view !== 'liuyue') onViewChange('liuyue');
+              }}
+              className="text-[9px] w-4 h-4 flex items-center justify-center rounded"
+              style={{ color: 'var(--t-faint)' }}
+            >
+              ‹
+            </button>
+            <span
+              className="text-[10px] font-mono min-w-[18px] text-center cursor-pointer"
+              style={{ color: view === 'liuyue' ? 'var(--t-gold)' : 'var(--t-faint)' }}
+              onClick={() => onViewChange('liuyue')}
+            >
+              {liuyueMonth}
+            </span>
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                onMonthChange?.(Math.min(12, liuyueMonth + 1));
+                if (view !== 'liuyue') onViewChange('liuyue');
+              }}
+              className="text-[9px] w-4 h-4 flex items-center justify-center rounded"
+              style={{ color: 'var(--t-faint)' }}
+            >
+              ›
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* 叠加四化说明行 */}
@@ -151,7 +223,7 @@ export default function TimeNav({
           className="flex items-center gap-2 mt-1.5 px-1 flex-wrap"
         >
           <span className="text-[9px]" style={{ color: 'var(--t-faint)' }}>
-            {view === 'daxian' ? '大限' : `${liunianYear}`}·{overlayInfo.stemName}年四化：
+            {view === 'daxian' ? '大限' : view === 'liuyue' ? `流月${liuyueMonth}` : `${liunianYear}`}·{overlayInfo.stemName}四化：
           </span>
           {(['禄', '权', '科', '忌'] as const).map(sh => {
             const starName = Object.keys(overlayInfo.overlay).find(k => overlayInfo.overlay[k] === sh);

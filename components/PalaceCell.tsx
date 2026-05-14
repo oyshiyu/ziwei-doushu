@@ -1,6 +1,8 @@
 'use client';
 import { motion } from 'framer-motion';
 import type { Palace, Star } from '@/lib/ziwei/types';
+import type { IztroStar } from '@/lib/ziwei/types';
+import type { PalaceDisplayData } from '@/lib/ziwei/display';
 import { STEMS, BRANCHES } from '@/lib/ziwei/constants';
 import clsx from 'clsx';
 
@@ -17,6 +19,10 @@ interface PalaceCellProps {
   overlayLabel?: string;
   /** 点击叠加四化 badge 回调 */
   onSiHuaClick?: (starName: string, siHua: string) => void;
+  /** iztro 原始宫位数据，用于显示完整排盘字段 */
+  displayData?: PalaceDisplayData;
+  /** 是否显示完整盘附加字段 */
+  showDetails?: boolean;
 }
 
 const SIHUA_STYLES: Record<string, string> = {
@@ -53,16 +59,70 @@ const SiHuaBadge = ({
   );
 };
 
+const MINOR_TYPE_STYLE: Record<string, string> = {
+  soft: 'text-sky-500/75',
+  tough: 'text-red-500/70',
+  lucun: 'text-emerald-500/75',
+  tianma: 'text-cyan-500/75',
+  flower: 'text-pink-500/75',
+  helper: 'text-indigo-500/75',
+};
+
+function starMutagen(star: IztroStar): string | undefined {
+  return star.mutagen === '禄' || star.mutagen === '权' || star.mutagen === '科' || star.mutagen === '忌'
+    ? star.mutagen
+    : undefined;
+}
+
+function brightnessLabel(star: IztroStar): string {
+  const labelMap: Record<string, string> = {
+    bright: '旺',
+    normal: '',
+    dim: '陷',
+  };
+  const label = star.brightness ? (labelMap[star.brightness] ?? star.brightness) : '';
+  return label ? ` ${label}` : '';
+}
+
 export default function PalaceCell({
   palace, onClick, onStarClick, isSelected, isSanFang, delay = 0,
-  overlayStarSiHua, overlayLabel, onSiHuaClick,
+  overlayStarSiHua, overlayLabel, onSiHuaClick, displayData, showDetails = false,
 }: PalaceCellProps) {
   const { branch, stem, name, stars, daXianAge, isCurrentDaXian, isMingGong, isShenGong } = palace;
   const ganzhi = `${STEMS[stem]}${BRANCHES[branch]}`;
 
-  const majorStars = stars.filter(s => s.type === 'major');
-  const luckyStars = stars.filter(s => s.type === 'lucky');
-  const shaStars = stars.filter(s => s.type === 'sha');
+  const majorStars = displayData?.majorStars ?? stars.filter(s => s.type === 'major').map(s => ({
+    name: s.name,
+    type: 'major',
+    scope: 'origin',
+    brightness: s.brightness,
+    mutagen: s.siHua,
+  }));
+  const minorStars = displayData?.minorStars ?? stars.filter(s => s.type === 'lucky' || s.type === 'sha').map(s => ({
+    name: s.name,
+    type: s.type,
+    scope: 'origin',
+    brightness: s.brightness,
+    mutagen: s.siHua,
+  }));
+  const adjectiveStars = displayData?.adjectiveStars ?? stars.filter(s => s.type === 'minor').map(s => ({
+    name: s.name,
+    type: 'adjective',
+    scope: 'origin',
+    brightness: s.brightness,
+    mutagen: s.siHua,
+  }));
+
+  const toCompatStar = (star: IztroStar): Star => {
+    const existing = stars.find(s => s.name === star.name);
+    if (existing) return existing;
+    return {
+      name: star.name,
+      type: star.type === 'tough' ? 'sha' : star.type === 'soft' || star.type === 'lucun' || star.type === 'tianma' ? 'lucky' : 'minor',
+      brightness: star.brightness === '庙' || star.brightness === '旺' ? 'bright' : star.brightness === '陷' || star.brightness === '不' ? 'dim' : 'normal',
+      siHua: starMutagen(star) as Star['siHua'],
+    };
+  };
 
   return (
     <motion.div
@@ -70,7 +130,7 @@ export default function PalaceCell({
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.35, delay, ease: 'easeOut' }}
       onClick={onClick}
-      className="relative flex flex-col p-1.5 cursor-pointer transition-all duration-200 h-full"
+      className="palace-cell relative flex flex-col p-1.5 cursor-pointer transition-all duration-200 h-full"
       style={{
         minHeight: '90px',
         background: isCurrentDaXian
@@ -81,7 +141,7 @@ export default function PalaceCell({
           ? 'rgba(37,99,235,0.09)'
           : isMingGong
           ? 'rgba(212,168,67,0.04)'
-          : 'var(--t-bg)',
+          : 'var(--chart-palace-bg)',
         boxShadow: isCurrentDaXian
           ? 'inset 3px 0 0 rgba(147,51,234,0.5)'
           : isSelected
@@ -118,10 +178,17 @@ export default function PalaceCell({
         {isShenGong && (
           <span className="text-[7px] text-sky-500/80 border border-sky-500/30 px-0.5 rounded leading-tight">身</span>
         )}
+        {showDetails && displayData?.isOriginalPalace && (
+          <span className="text-[7px] text-violet-500/80 border border-violet-500/30 px-0.5 rounded leading-tight">因</span>
+        )}
       </div>
 
       {/* 干支 */}
-      <div className="text-[9px] font-mono mb-1" style={{ color: 'var(--t-faint)', opacity: 0.75 }}>{ganzhi}</div>
+      <div className="text-[9px] font-mono mb-1 flex items-center gap-1 flex-wrap" style={{ color: 'var(--t-faint)', opacity: 0.75 }}>
+        <span>{ganzhi}</span>
+        {showDetails && displayData?.runtimeStars.changsheng12 && <span>· {displayData.runtimeStars.changsheng12}</span>}
+        {showDetails && displayData?.runtimeStars.boshi12 && <span>· {displayData.runtimeStars.boshi12}</span>}
+      </div>
 
       {/* 主星 */}
       <div className="flex flex-col gap-0.5 flex-1">
@@ -134,15 +201,15 @@ export default function PalaceCell({
             <div
               key={star.name}
               className="flex items-center"
-              onClick={e => { e.stopPropagation(); onStarClick?.(star); }}
+              onClick={e => { e.stopPropagation(); onStarClick?.(toCompatStar(star)); }}
             >
               <span className={clsx(
                 'text-[13px] leading-tight font-bold tracking-tight cursor-pointer hover:brightness-125 transition-all',
-                star.brightness === 'bright' ? 'text-amber-300' : star.brightness === 'dim' ? 'text-amber-700/80' : 'text-amber-500',
+                star.brightness === '庙' || star.brightness === '旺' ? 'text-amber-300' : star.brightness === '陷' || star.brightness === '不' ? 'text-amber-700/80' : 'text-amber-500',
               )}>
-                {star.name}
+                {star.name}<span className="text-[8px] font-normal opacity-70">{brightnessLabel(star)}</span>
               </span>
-              {star.siHua && <SiHuaBadge siHua={star.siHua} />}
+              {starMutagen(star) && <SiHuaBadge siHua={starMutagen(star)!} />}
               {overlaySiHua && (
                 <SiHuaBadge
                   siHua={overlaySiHua}
@@ -159,15 +226,19 @@ export default function PalaceCell({
         })}
       </div>
 
-      {/* 吉星 */}
-      {luckyStars.length > 0 && (
+      {/* 辅星 */}
+      {minorStars.length > 0 && (
         <div className="flex flex-wrap gap-x-1 mt-0.5">
-          {luckyStars.map(s => {
+          {minorStars.map(s => {
             const overlaySiHua = overlayStarSiHua?.[s.name];
             return (
-              <span key={s.name} className="inline-flex items-center text-[9px] text-sky-500/70 leading-tight">
-                {s.name}
-                {s.siHua && <SiHuaBadge siHua={s.siHua} />}
+              <span
+                key={s.name}
+                className={clsx('inline-flex items-center text-[9px] leading-tight cursor-pointer', MINOR_TYPE_STYLE[s.type] ?? 'text-sky-500/70')}
+                onClick={e => { e.stopPropagation(); onStarClick?.(toCompatStar(s)); }}
+              >
+                {s.name}<span className="text-[7px] opacity-60">{brightnessLabel(s)}</span>
+                {starMutagen(s) && <SiHuaBadge siHua={starMutagen(s)!} />}
                 {overlaySiHua && (
                   <SiHuaBadge
                     siHua={overlaySiHua}
@@ -185,17 +256,33 @@ export default function PalaceCell({
         </div>
       )}
 
-      {/* 煞星 */}
-      {shaStars.length > 0 && (
-        <div className="flex flex-wrap gap-x-1">
-          {shaStars.map(s => (
-            <span key={s.name} className="text-[9px] text-red-500/60 leading-tight">
-              {s.name}{s.siHua && <SiHuaBadge siHua={s.siHua} />}
+      {/* 杂曜 */}
+      {adjectiveStars.length > 0 && (
+        <div className="flex flex-wrap gap-x-1 mt-0.5">
+          {adjectiveStars.map(s => (
+            <span
+              key={s.name}
+              className={clsx('text-[8px] leading-tight cursor-pointer', MINOR_TYPE_STYLE[s.type] ?? 'text-[color:var(--t-faint)] opacity-75')}
+              onClick={e => { e.stopPropagation(); onStarClick?.(toCompatStar(s)); }}
+            >
+              {s.name}{starMutagen(s) && <SiHuaBadge siHua={starMutagen(s)!} />}
             </span>
           ))}
         </div>
       )}
 
+      {/* 岁前/将前/小限 */}
+      {showDetails && displayData && (
+        <div className="mt-1 pt-1 border-t text-[7px] leading-snug space-y-0.5" style={{ borderColor: 'var(--t-border)', color: 'var(--t-faint)', opacity: 0.78 }}>
+          <div className="flex flex-wrap gap-x-1">
+            {displayData.runtimeStars.jiangqian12 && <span>将前 {displayData.runtimeStars.jiangqian12}</span>}
+            {displayData.runtimeStars.suiqian12 && <span>岁前 {displayData.runtimeStars.suiqian12}</span>}
+          </div>
+          {displayData.ages.length > 0 && (
+            <div className="truncate" title={displayData.ages.join('、')}>小限 {displayData.ages.join('、')}</div>
+          )}
+        </div>
+      )}
     </motion.div>
   );
 }

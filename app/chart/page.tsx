@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import BirthForm, { type BirthFormState } from '@/components/BirthForm';
 import TopBar, { type TimeView } from '@/components/chart/TopBar';
@@ -13,8 +13,13 @@ import type { BirthInfo, ZiweiChart, Star, Palace } from '@/lib/ziwei/types';
 import { formToSearchParams, searchParamsToForm, formToBirthInfo } from '@/lib/ziwei/share';
 import { useHistory } from '@/lib/ziwei/history';
 
+type ChartMode = 'compact' | 'full';
+const COMPACT_PANE_WIDTH = 640;
+const FULL_PANE_WIDTH = 760;
+
 export default function ChartPage() {
   const router = useRouter();
+  const workspaceRef = useRef<HTMLDivElement>(null);
 
   // ── 命盘状态 ──────────────────────────────────────────────
   const [chart, setChart] = useState<ZiweiChart | null>(null);
@@ -24,6 +29,8 @@ export default function ChartPage() {
   const [formKey, setFormKey] = useState(0);
   const [copied, setCopied] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [chartMode, setChartMode] = useState<ChartMode>('compact');
+  const [leftPaneWidth, setLeftPaneWidth] = useState(COMPACT_PANE_WIDTH);
 
   // ── 时间视图状态 ──────────────────────────────────────────
   const [view, setView] = useState<TimeView>('mingpan');
@@ -121,7 +128,46 @@ export default function ChartPage() {
   };
 
   const handleSiHuaBadgeClick = (starName: string, siHua: string) => {
-    setFocus({ type: 'sihua', label: `${starName} 化${siHua}`, siHua });
+    setFocus({ type: 'sihua', label: `${starName} 化${siHua}`, starName, siHua });
+  };
+
+  const handleChartModeChange = (mode: ChartMode) => {
+    setChartMode(mode);
+    if (mode === 'compact') {
+      setLeftPaneWidth(COMPACT_PANE_WIDTH);
+      return;
+    }
+    if (mode === 'full' && typeof window !== 'undefined') {
+      const maxWidth = Math.max(420, window.innerWidth - 420);
+      setLeftPaneWidth(current => Math.min(Math.max(current, FULL_PANE_WIDTH), maxWidth));
+    }
+  };
+
+  const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    event.preventDefault();
+    const rect = workspace.getBoundingClientRect();
+    const minLeft = 420;
+    const minRight = 360;
+    const maxLeft = Math.max(minLeft, rect.width - minRight);
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(Math.max(moveEvent.clientX - rect.left, minLeft), maxLeft);
+      setLeftPaneWidth(nextWidth);
+    };
+
+    const handleUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
   };
 
   // ─────────────────────────────────────────────────────────
@@ -284,18 +330,43 @@ export default function ChartPage() {
           />
 
           {/* 主体：桌面双栏 / 手机上下堆叠 */}
-          <div className="chart-workspace">
+          <div
+            ref={workspaceRef}
+            className="chart-workspace"
+            style={{ '--chart-left-width': `${leftPaneWidth}px` } as React.CSSProperties}
+          >
 
             {/* 左栏：命盘主舞台 */}
             <div className="chart-workspace-left">
+              <div className="chart-mode-row" aria-label="排盘显示模式">
+                {([
+                  ['compact', '精简盘'],
+                  ['full', '完整盘'],
+                ] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    data-active={chartMode === mode}
+                    onClick={() => handleChartModeChange(mode)}
+                    className="chart-mode-button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               <ChartBoard
                 chart={chart}
+                mode={chartMode}
                 view={view}
                 liunianYear={liunianYear}
+                liuyueMonth={liuyueMonth}
                 onStarClick={handleStarClick}
                 onPalaceClick={handlePalaceClick}
                 onSiHuaBadgeClick={handleSiHuaBadgeClick}
                 onTimeViewChange={setView}
+                onYearChange={setLiunianYear}
+                onMonthChange={setLiuyueMonth}
               />
 
               {/* 底部操作区 */}
@@ -323,6 +394,14 @@ export default function ChartPage() {
                 </button>
               </div>
             </div>
+
+            <div
+              className="chart-workspace-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整命盘和解读区域宽度"
+              onPointerDown={handleResizeStart}
+            />
 
             {/* 右栏：洞察工作区 */}
             <div className="chart-workspace-right">

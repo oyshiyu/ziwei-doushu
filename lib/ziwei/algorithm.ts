@@ -5,7 +5,7 @@
 
 import { astro } from 'iztro';
 import { Solar } from 'lunar-javascript';
-import type { BirthInfo, LunarInfo, Star, Palace, DaXian, DaXianSiHua, ZiweiChart } from './types';
+import type { BirthInfo, LunarInfo, Star, Palace, DaXian, ZiweiChart, IztroAstrolabe, IztroHoroscope } from './types';
 import { BRANCHES, STEMS } from './constants';
 // 飞星派工具仅供导出，不再在排盘时调用（倪师《天纪 03》：四化星永远固定不动）
 // import { detectSelfSihua, getSiHuaByStem } from './sihua';
@@ -62,6 +62,16 @@ function parseWuxingJu(name: string): number {
   return 3;
 }
 
+function cleanMutagen(mutagen?: string): Star['siHua'] | undefined {
+  return mutagen === '禄' || mutagen === '权' || mutagen === '科' || mutagen === '忌'
+    ? mutagen
+    : undefined;
+}
+
+function toPlain<T>(value: unknown): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 // ─── 主函数：生成命盘 ────────────────────────────────────────────
 export function generateChart(birthInfo: BirthInfo): ZiweiChart {
   const { year, month, day, hour, gender } = birthInfo;
@@ -70,6 +80,11 @@ export function generateChart(birthInfo: BirthInfo): ZiweiChart {
   const solarDate = `${year}-${month}-${day}`;
   const iztroGender = gender === 'male' ? '男' : '女';
   const astrolabe = astro.bySolar(solarDate, hour, iztroGender, true, 'zh-CN');
+  const now = new Date();
+  const currentHoroscope = astrolabe.horoscope(now, hour);
+  const plainAstrolabe = toPlain<IztroAstrolabe>(astrolabe);
+  const { astrolabe: _nestedAstrolabe, ...plainHoroscope } =
+    toPlain<IztroHoroscope & { astrolabe?: unknown }>(currentHoroscope);
 
   // ── 组装十二宫 ──
   const palaces: Palace[] = astrolabe.palaces.map(p => {
@@ -82,17 +97,17 @@ export function generateChart(birthInfo: BirthInfo): ZiweiChart {
         name:       s.name as string,
         type:       'major' as const,
         brightness: mapBrightness(s.brightness as string),
-        siHua:      s.mutagen as Star['siHua'],
+        siHua:      cleanMutagen(s.mutagen as string),
       })),
       ...(p.minorStars ?? []).map(s => ({
         name:  s.name as string,
         type:  mapStarType(s.name as string, s.type as string),
-        siHua: s.mutagen as Star['siHua'],
+        siHua: cleanMutagen(s.mutagen as string),
       })),
       ...(p.adjectiveStars ?? []).map(s => ({
         name:  s.name as string,
         type:  'minor' as const,
-        siHua: s.mutagen as Star['siHua'],
+        siHua: cleanMutagen(s.mutagen as string),
       })),
     ];
 
@@ -107,16 +122,6 @@ export function generateChart(birthInfo: BirthInfo): ZiweiChart {
       isShenGong:    p.isBodyPalace ?? false,
       isCurrentDaXian: false,
     };
-  });
-
-  // ── 当前年龄 & 大限 ──
-  const currentYear = new Date().getFullYear();
-  const currentAge  = currentYear - year;
-
-  palaces.forEach(p => {
-    if (p.daXianAge && currentAge >= p.daXianAge[0] && currentAge <= p.daXianAge[1]) {
-      p.isCurrentDaXian = true;
-    }
   });
 
   // ── 借对宫结构化字段（codex P0：避免文案层从自然语言反查借宫信息）──
@@ -154,13 +159,20 @@ export function generateChart(birthInfo: BirthInfo): ZiweiChart {
       endAge:      p.daXianAge![1],
       palaceBranch: p.branch,
       palaceName:   p.name,
+      stemIndex:     p.stem,
+      stemName:      STEMS[p.stem],
     }));
 
   // 宫干自化已下线（倪师不主张飞星派宫干自化论）
 
-  const currentDaXianIndex = daXians.findIndex(
-    dx => currentAge >= dx.startAge && currentAge <= dx.endAge,
-  );
+  // ── 当前年龄 & 大限：使用 iztro 运限结果，避免周岁/虚岁和分界点自行推算偏差 ──
+  const currentAge = currentHoroscope.age.nominalAge;
+  const currentDecadalBranch = BRANCHES.indexOf(currentHoroscope.decadal.earthlyBranch as string);
+  const currentDaXianIndex = daXians.findIndex(dx => dx.palaceBranch === currentDecadalBranch);
+
+  palaces.forEach(p => {
+    p.isCurrentDaXian = p.branch === currentDecadalBranch;
+  });
 
   // ── 农历信息 ──
   const lunarInfo = getLunarInfo(year, month, day);
@@ -177,5 +189,9 @@ export function generateChart(birthInfo: BirthInfo): ZiweiChart {
     daXians,
     currentAge,
     currentDaXianIndex,
+    iztro: {
+      astrolabe: plainAstrolabe,
+      horoscope: plainHoroscope,
+    },
   };
 }
