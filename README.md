@@ -1,6 +1,6 @@
 # 紫微斗数 · 开源排盘引擎
 
-基于**倪海夏《天纪》**教学体系的紫微斗数排盘系统，包含完整排盘算法、四化系统、格局知识库、古籍原文数据，以及 **51.8 万条命盘样本数据**。
+基于**倪海夏《天纪》**教学体系的紫微斗数排盘系统，包含完整排盘算法、四化系统、格局知识库、古籍原文数据、OpenAI 兼容 AI 解读接口，以及 **51.8 万条命盘样本数据**。
 
 线上体验：[wdyziweidoushu666.com](https://wdyziweidoushu666.com)
 
@@ -78,9 +78,10 @@ Expand-Archive combined.zip
 
 ### 前端界面（`app/` + `components/`）
 
-完整的 Next.js 14 前端，包含：
+完整的 Next.js 15 前端，包含：
 
 - 排盘工作台（命盘方格、宫位详情、星曜面板）
+- AI 命盘解读面板（OpenAI 兼容协议，支持流式输出、主题切换和追问）
 - 合盘分析页
 - 古籍阅读器（全文搜索）
 - 命理百科（14 主星 + 12 宫位知识页）
@@ -97,15 +98,15 @@ Expand-Archive combined.zip
 
 以下属于平台运营层，不在开源范围内：
 
-- **AI 解读 prompt**：基于倪海夏体系调教的命盘解读提示词
-- **私有后端 API**：`/api/interpret`、`/api/heming` 等 AI 解读、合盘深度分析与运营服务接口
+- **私有运营 prompt**：线上产品使用的调教细节、运营策略和安全策略
+- **私有后端 API**：`/api/heming` 等合盘深度分析与运营服务接口
 - **用户系统**：登录、短信验证、会员、支付
 - **服务端安全**：签名校验、防刷、水印
 - **部署配置**：Vercel/Nginx/Docker/数据库
 
 开源版保留本地排盘 API：`/api/generate`。它只负责把出生信息转换为命盘结构，便于前端排盘工作台独立运行。
 
-如果你需要 AI 解读能力，可以参考 `lib/ziwei/patterns.ts` 和 `heming-knowledge.ts` 中的知识库，结合任意 LLM 自行构建 prompt。
+开源版也提供 OpenAI 兼容的流式 AI 解读接口：`/api/interpret`。配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL` 后，排盘页的 AI 解读面板即可调用兼容 `/v1/chat/completions` 的模型服务。
 
 ---
 
@@ -119,7 +120,7 @@ cd ziwei-doushu
 # 安装依赖
 npm install
 
-# 配置环境变量（仅 AI 解读等私有能力需要）
+# 配置环境变量（仅 AI 解读需要）
 cp .env.example .env.local
 # 如果只使用本地排盘工作台，可以跳过 AI API Key
 
@@ -127,13 +128,13 @@ cp .env.example .env.local
 npm run dev
 ```
 
-> 注意：开源版包含 `/api/generate` 本地排盘接口，AI 解读功能需要你自行实现 `/api/interpret` 等接口。排盘算法、排盘接口和前端界面可独立运行。
+> 注意：开源版包含 `/api/generate` 本地排盘接口和 OpenAI 兼容的 `/api/interpret` 流式解读接口。未配置 AI API Key 时，排盘算法、排盘接口和前端命盘工作台仍可独立运行。
 
 ---
 
 ## 技术栈
 
-- **框架**：Next.js 14（App Router）
+- **框架**：Next.js 15（App Router）
 - **语言**：TypeScript
 - **样式**：Tailwind CSS + CSS Variables 设计系统
 - **排盘**：基于 [iztro](https://github.com/SylarLong/iztro) + lunar-javascript
