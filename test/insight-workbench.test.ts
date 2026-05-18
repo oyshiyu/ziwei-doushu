@@ -71,6 +71,50 @@ const focusEvidence = buildFocusEvidence(chartA, {
 assert.ok(focusEvidence.items.some(item => item.label === '当前焦点' && item.value.includes('夫妻')));
 assert.ok(focusEvidence.items.some(item => item.label === '主星'), 'palace focus evidence should include palace stars');
 
+const loveTopicEvidence = buildFocusEvidence(chartA, {
+  kind: 'topic',
+  key: 'topic:love',
+  label: '感情',
+});
+assert.ok(
+  loveTopicEvidence.items.some(item => item.label === '当前焦点' && item.value === '感情'),
+  'love topic evidence should preserve the active topic label'
+);
+assert.ok(
+  loveTopicEvidence.items.some(item => item.label === '所在宫位' && item.value.includes('夫妻')),
+  'love topic evidence should start from the spouse palace'
+);
+assert.ok(
+  loveTopicEvidence.items.some(item => item.label === '相关宫位' && item.value.includes('夫妻') && item.value.includes('福德')),
+  'love topic evidence should show the related spouse and fortune palaces'
+);
+assert.ok(
+  loveTopicEvidence.tags.some(tag => tag === '焦点：感情'),
+  'love topic evidence should expose a public focus tag'
+);
+
+const wealthTopicEvidence = buildFocusEvidence(chartA, {
+  kind: 'topic',
+  key: 'topic:wealth',
+  label: '财运',
+});
+assert.ok(
+  wealthTopicEvidence.items.some(item => item.label === '当前焦点' && item.value === '财运'),
+  'wealth topic evidence should preserve the active topic label'
+);
+assert.ok(
+  wealthTopicEvidence.items.some(item => item.label === '所在宫位' && item.value.includes('财帛')),
+  'wealth topic evidence should start from the wealth palace'
+);
+assert.ok(
+  wealthTopicEvidence.items.some(item => item.label === '相关宫位' && item.value.includes('财帛') && item.value.includes('田宅')),
+  'wealth topic evidence should show the related wealth and property palaces'
+);
+assert.ok(
+  wealthTopicEvidence.tags.some(tag => tag === '焦点：财运'),
+  'wealth topic evidence should expose a public focus tag'
+);
+
 const storage = memoryStorage();
 const savedA = createSavedInsightEntry({
   chartId: idA,
