@@ -5,6 +5,7 @@ import type { ZiweiChart, Palace, Star } from '@/lib/ziwei/types';
 import type { TimeView } from './TimeNav';
 import {
   buildFocusEvidence,
+  buildFirstReadGuide,
   buildSafeSharePayload,
   buildSummaryEvidence,
   createSavedInsightEntry,
@@ -15,6 +16,7 @@ import {
   saveInsightEntry,
   sanitizeShareText,
   type FocusEvidenceInput,
+  type FirstReadSuggestion,
   type InsightKind,
   type InsightEvidence,
   type SafeSharePayload,
@@ -528,6 +530,71 @@ function ActionButton({
   );
 }
 
+function FirstReadGuide({
+  suggestions,
+  activeTopic,
+  onSelect,
+}: {
+  suggestions: FirstReadSuggestion[];
+  activeTopic: string;
+  onSelect: (topicKey: string) => void;
+}) {
+  if (!suggestions.length) return null;
+  const primary = suggestions[0];
+
+  return (
+    <div
+      className="mt-2 rounded-lg px-3 py-2.5"
+      style={{
+        background: 'rgba(212,168,67,0.06)',
+        border: '1px solid rgba(212,168,67,0.16)',
+      }}
+    >
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold tracking-widest" style={{ color: 'var(--t-gold)' }}>
+            建议先看
+          </div>
+          <div className="mt-0.5 text-[13px] leading-5" style={{ color: 'var(--t-text)' }}>
+            {primary.label}
+            <span className="ml-2 text-[12px]" style={{ color: 'var(--t-faint)' }}>{primary.reason}</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onSelect(primary.topicKey)}
+          className="shrink-0 rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-all"
+          style={{
+            background: 'rgba(212,168,67,0.12)',
+            border: '1px solid rgba(212,168,67,0.25)',
+            color: 'var(--t-gold)',
+          }}
+        >
+          查看
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {suggestions.map(suggestion => (
+          <button
+            key={suggestion.topicKey}
+            type="button"
+            onClick={() => onSelect(suggestion.topicKey)}
+            className="rounded-full px-2.5 py-1 text-[11px] transition-all"
+            title={suggestion.evidence}
+            style={{
+              background: activeTopic === suggestion.topicKey ? 'rgba(212,168,67,0.14)' : 'var(--t-card)',
+              border: `1px solid ${activeTopic === suggestion.topicKey ? 'rgba(212,168,67,0.28)' : 'var(--t-border)'}`,
+              color: activeTopic === suggestion.topicKey ? 'var(--t-gold)' : 'var(--t-text2)',
+            }}
+          >
+            {suggestion.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function InsightPanel({ chart, selectedStar, selectedPalace, selectedSiHua, onSharePayloadChange }: InsightPanelProps) {
   const [summary, setSummary] = useState('');
   const [activeTopic, setActiveTopic] = useState<string>('overview');
@@ -546,6 +613,7 @@ export default function InsightPanel({ chart, selectedStar, selectedPalace, sele
   const chartId = useMemo(() => getChartInsightId(chart), [chart]);
   const summaryEvidence = useMemo(() => buildSummaryEvidence(chart), [chart]);
   const focusEvidence = useMemo(() => buildFocusEvidence(chart, focus.evidenceInput), [chart, focus]);
+  const firstReadGuide = useMemo(() => buildFirstReadGuide(chart), [chart]);
   const sharePayload = useMemo(() => buildSafeSharePayload({
     chart,
     summary,
@@ -936,6 +1004,11 @@ ${focusInsightRef.current || '暂无焦点短解读'}
             );
           })}
         </div>
+        <FirstReadGuide
+          suggestions={firstReadGuide}
+          activeTopic={activeTopic}
+          onSelect={handleTopicClick}
+        />
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">

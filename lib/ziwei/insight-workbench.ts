@@ -59,6 +59,13 @@ export interface SafeSharePayload {
   focusLabel?: string;
 }
 
+export interface FirstReadSuggestion {
+  topicKey: string;
+  label: string;
+  reason: string;
+  evidence: string;
+}
+
 const BRANCH_NAMES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
 const SAVED_PREFIX = 'ziwei:insight:saved:v2';
 const CACHE_PREFIX = 'ziwei:insight:cache:v2';
@@ -71,6 +78,15 @@ const TOPIC_TO_PALACE: Record<string, string[]> = {
   wealth: ['财帛', '田宅'],
   health: ['疾厄', '福德'],
   personality: ['命宫', '福德'],
+};
+
+const TOPIC_LABELS: Record<string, string> = {
+  overview: '命格',
+  love: '感情',
+  career: '事业',
+  wealth: '财运',
+  health: '健康',
+  personality: '性格',
 };
 
 export function getChartInsightId(chart: ZiweiChart): string {
@@ -229,6 +245,65 @@ export function buildSafeSharePayload(input: {
   };
 }
 
+export function buildFirstReadGuide(chart: ZiweiChart): FirstReadSuggestion[] {
+  const currentDaXian = chart.daXians?.[chart.currentDaXianIndex];
+  const ming = getPalaceByBranch(chart, chart.mingGongBranch);
+  const shen = getPalaceByBranch(chart, chart.shenGongBranch);
+
+  const scored = Object.keys(TOPIC_TO_PALACE).map(topicKey => {
+    const palaces = getTopicPalaces(chart, `topic:${topicKey}`);
+    const palaceNames = new Set(palaces.map(palace => normalizePalaceName(palace.name)));
+    const reasons: string[] = [];
+    let score = 0;
+
+    if (currentDaXian && palaceNames.has(normalizePalaceName(currentDaXian.palaceName))) {
+      score += 5;
+      reasons.push(`当前大限走到${currentDaXian.palaceName}`);
+    }
+    if (palaces.some(palace => palace.branch === chart.mingGongBranch || palace.branch === chart.shenGongBranch)) {
+      score += 3;
+      reasons.push(
+        palaces.some(palace => palace.branch === chart.mingGongBranch) ? '关联命宫' : '关联身宫'
+      );
+    }
+    const siHuaCount = palaces.reduce(
+      (count, palace) =>
+        count
+        + palace.stars.filter(star => star.siHua).length
+        + (palace.selfSihua?.length ?? 0),
+      0,
+    );
+    if (siHuaCount > 0) {
+      score += Math.min(siHuaCount, 3);
+      reasons.push(`${siHuaCount} 个四化信号`);
+    }
+    const majorStarCount = palaces.reduce(
+      (count, palace) => count + palace.stars.filter(star => star.type === 'major').length + (palace.borrowedStars?.length ?? 0),
+      0,
+    );
+    if (majorStarCount > 0) {
+      score += 1;
+      reasons.push(`${majorStarCount} 颗主星可读`);
+    }
+
+    if (topicKey === 'overview') score += 1;
+    if (topicKey === 'personality' && ming && shen && ming.branch !== shen.branch) score += 1;
+
+    return {
+      topicKey,
+      label: TOPIC_LABELS[topicKey] ?? topicKey,
+      score,
+      reason: reasons[0] ?? '适合作为第一轮命盘总览',
+      evidence: reasons.slice(0, 2).join(' · ') || describeTopicEvidence(palaces),
+    };
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score || topicOrder(a.topicKey) - topicOrder(b.topicKey))
+    .slice(0, 3)
+    .map(({ topicKey, label, reason, evidence }) => ({ topicKey, label, reason, evidence }));
+}
+
 function buildChartSignature(chart: ZiweiChart) {
   return {
     mingGongBranch: chart.mingGongBranch,
@@ -329,6 +404,14 @@ function buildPublicTags(chart: ZiweiChart, patterns: Pattern[], focusLabel?: st
     patterns[0] ? `格局：${patterns[0].name}` : '',
     focusLabel ? `焦点：${focusLabel}` : '',
   ].filter(Boolean);
+}
+
+function describeTopicEvidence(palaces: Palace[]): string {
+  return palaces.slice(0, 2).map(palace => palace.name).join('、') || '命盘基础宫位';
+}
+
+function topicOrder(topicKey: string): number {
+  return ['overview', 'career', 'wealth', 'love', 'health', 'personality'].indexOf(topicKey);
 }
 
 function compactItems(items: Array<EvidenceItem | null>): EvidenceItem[] {

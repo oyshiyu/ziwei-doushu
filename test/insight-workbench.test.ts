@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { generateChart } from '../lib/ziwei/algorithm';
 import {
   buildFocusEvidence,
+  buildFirstReadGuide,
   buildSafeSharePayload,
   buildSummaryEvidence,
   createSavedInsightEntry,
@@ -59,6 +60,19 @@ assert.equal(summaryEvidence.title, '命盘依据');
 assert.ok(summaryEvidence.items.some(item => item.label === '命宫'), 'summary evidence should include 命宫');
 assert.ok(summaryEvidence.items.some(item => item.label === '身宫'), 'summary evidence should include 身宫');
 assert.ok(summaryEvidence.items.some(item => item.label === '命宫主星'), 'summary evidence should include 命宫主星');
+
+const firstReadGuide = buildFirstReadGuide(chartA);
+assert.equal(firstReadGuide.length, 3, 'first-read guide should return three prioritized topics');
+assert.ok(firstReadGuide.every(item => item.topicKey && item.label && item.reason), 'first-read topics should be actionable');
+assert.ok(
+  firstReadGuide.some(item => ['命格', '感情', '事业', '财运', '健康', '性格'].includes(item.label)),
+  'first-read guide should use visible topic labels'
+);
+assert.doesNotMatch(
+  firstReadGuide.map(item => `${item.reason} ${item.evidence}`).join('\n'),
+  /2000年8月16日|2000-8-16|北京|116\.4/,
+  'first-read guide must not expose raw birth information'
+);
 
 const palace = chartA.palaces.find(item => item.name === '夫妻');
 assert.ok(palace);
